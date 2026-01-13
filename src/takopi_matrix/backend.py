@@ -22,6 +22,8 @@ from .bridge import (
 )
 from .client import MatrixClient
 from .onboarding import check_setup, interactive_setup
+from .room_prefs import RoomPrefsStore, resolve_prefs_path
+from .room_projects import RoomProjectMap, build_room_project_map
 
 
 def _get_crypto_store_path() -> Path:
@@ -216,6 +218,13 @@ class MatrixBackend(TransportBackend):
         file_download = _build_file_download_config(transport_config)
         send_startup_message = bool(transport_config.get("send_startup_message", True))
 
+        # Initialize room preferences store for per-room engine defaults
+        room_prefs_path = resolve_prefs_path(config_path)
+        room_prefs = RoomPrefsStore(room_prefs_path)
+
+        # Build room-to-project mapping from config
+        room_project_map = build_room_project_map(transport_config, runtime)
+
         cfg = MatrixBridgeConfig(
             client=client,
             runtime=runtime,
@@ -226,6 +235,8 @@ class MatrixBackend(TransportBackend):
             voice_transcription=voice_transcription,
             file_download=file_download,
             send_startup_message=send_startup_message,
+            room_prefs=room_prefs,
+            room_project_map=room_project_map,
         )
 
         # anyio.run only accepts positional args, so pass as a lambda

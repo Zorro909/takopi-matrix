@@ -50,8 +50,16 @@ from .client import (
     parse_room_media,
     parse_room_message,
 )
+from .engine_defaults import (
+    EngineResolution,
+    _allowed_room_ids,
+    resolve_context_for_room,
+    resolve_engine_for_message,
+)
+from .room_projects import RoomProjectMap
 from .files import MAX_FILE_SIZE, process_attachments
 from .render import prepare_matrix
+from .room_prefs import RoomPrefsStore
 from .types import MatrixIncomingMessage, MatrixReaction
 
 logger = get_logger(__name__)
@@ -243,6 +251,8 @@ class MatrixBridgeConfig:
     voice_transcription: MatrixVoiceTranscriptionConfig | None = None
     file_download: MatrixFileDownloadConfig | None = None
     send_startup_message: bool = True
+    room_prefs: RoomPrefsStore | None = None
+    room_project_map: RoomProjectMap | None = None
 
 
 async def _send_plain(
@@ -1184,7 +1194,9 @@ async def _sync_loop(
 ) -> None:
     """Continuous sync loop with reconnection."""
     backoff = ExponentialBackoff()
-    allowed_room_ids = set(cfg.room_ids)
+    allowed_room_ids = _allowed_room_ids(
+        cfg.room_ids, cfg.runtime, cfg.room_project_map
+    )
     own_user_id = cfg.client.user_id
 
     logger.debug(
@@ -1418,8 +1430,32 @@ async def run_main_loop(
 
                 text = resolved.prompt
                 resume_token = resolved.resume_token
-                engine_override = resolved.engine_override
-                context = resolved.context
+
+                # Resolve context: directive takes priority, then room's bound project
+                context = resolve_context_for_room(
+                    room_id=room_id,
+                    directive_context=resolved.context,
+                    room_project_map=cfg.room_project_map,
+                )
+
+                # Resolve engine using hierarchy:
+                # 1. Directive (@engine), 2. Room default, 3. Project default, 4. Global
+                engine_resolution = await resolve_engine_for_message(
+                    runtime=cfg.runtime,
+                    context=context,
+                    explicit_engine=resolved.engine_override,
+                    room_id=room_id,
+                    room_prefs=cfg.room_prefs,
+                    room_project_map=cfg.room_project_map,
+                )
+                engine_override = engine_resolution.engine
+                logger.debug(
+                    "matrix.engine.resolved",
+                    room_id=room_id,
+                    engine=engine_override,
+                    source=engine_resolution.source,
+                    context_project=context.project if context else None,
+                )
 
                 if resume_token is None and reply_to is not None:
                     running_task = running_tasks.get(
