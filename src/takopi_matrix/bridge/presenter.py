@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from takopi.api import RenderedMessage
-from takopi.markdown import MarkdownFormatter
-from takopi.progress import ProgressState
+from ..markdown import MarkdownFormatter
+from ..progress import ProgressState
 
 from ..render import prepare_matrix
 

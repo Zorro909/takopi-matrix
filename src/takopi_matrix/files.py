@@ -4,7 +4,7 @@ import hashlib
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from takopi.logging import get_logger
+from takopi.api import get_logger
 
 if TYPE_CHECKING:
     from .client import MatrixClient

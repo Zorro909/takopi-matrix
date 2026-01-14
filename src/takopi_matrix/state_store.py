@@ -8,7 +8,7 @@ from typing import Any, Protocol
 
 import anyio
 
-from takopi.logging import get_logger
+from takopi.api import get_logger
 
 logger = get_logger(__name__)
 

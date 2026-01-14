@@ -21,9 +21,7 @@ from takopi.api import (
     SendOptions,
     TransportRuntime,
 )
-from takopi.commands import get_command
-from takopi.logging import get_logger
-from takopi.scheduler import ThreadScheduler
+from takopi.api import get_command, get_logger, ThreadScheduler
 
 from ..types import MatrixIncomingMessage
 from .config import MatrixBridgeConfig

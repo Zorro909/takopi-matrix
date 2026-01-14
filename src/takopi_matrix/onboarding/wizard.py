@@ -11,7 +11,7 @@ from rich.console import Console
 from rich.panel import Panel
 
 from takopi.api import ConfigError
-from takopi.config import HOME_CONFIG_PATH, ensure_table, read_config, write_config
+from takopi.api import HOME_CONFIG_PATH, read_config, write_config
 
 from .config_gen import _mask_token, _render_config
 from .rooms import (
@@ -289,13 +289,8 @@ async def interactive_setup(*, force: bool) -> bool:
             merged["default_engine"] = default_engine
         merged["transport"] = "matrix"
 
-        transports = ensure_table(merged, "transports", config_path=config_path)
-        matrix = ensure_table(
-            transports,
-            "matrix",
-            config_path=config_path,
-            label="transports.matrix",
-        )
+        transports = merged.setdefault("transports", {})
+        matrix = transports.setdefault("matrix", {})
         matrix["homeserver"] = homeserver
         matrix["user_id"] = user_id
         matrix["access_token"] = access_token

@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 
 from takopi.api import MessageRef, RenderedMessage, SendOptions, Transport
-from takopi.logging import get_logger
+from takopi.api import get_logger
 
 from ..types import MatrixIncomingMessage
 from .config import MatrixBridgeConfig, MatrixVoiceTranscriptionConfig

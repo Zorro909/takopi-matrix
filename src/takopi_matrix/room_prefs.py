@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from takopi.logging import get_logger
+from takopi.api import get_logger
 
 from .state_store import JsonStateStore
 

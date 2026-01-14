@@ -15,7 +15,7 @@ room_ids = ["!main:example.org", "!project:example.org"]
 from __future__ import annotations
 
 from takopi.api import RunContext, TransportRuntime
-from takopi.logging import get_logger
+from takopi.api import get_logger
 
 logger = get_logger(__name__)
 

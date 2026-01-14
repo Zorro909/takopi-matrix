@@ -16,7 +16,7 @@ import anyio
 import httpx
 import nio
 
-from takopi.logging import get_logger
+from takopi.api import get_logger
 
 from .protocol import (
     NioClientProtocol,

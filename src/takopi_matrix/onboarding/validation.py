@@ -12,9 +12,7 @@ from takopi.api import (
     SetupIssue,
     SetupResult,
 )
-from takopi.backends_helpers import install_issue
-from takopi.config import HOME_CONFIG_PATH
-from takopi.settings import load_settings
+from takopi.api import install_issue, HOME_CONFIG_PATH, load_settings
 
 
 def _check_libolm_available() -> bool:

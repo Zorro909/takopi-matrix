@@ -17,8 +17,7 @@ from rich import box
 from rich.console import Console
 from rich.table import Table
 
-from takopi.engines import list_backends
-from takopi.logging import suppress_logs
+from takopi.api import list_backends, suppress_logs
 
 from .discovery import _discover_homeserver, _test_login, _test_token
 

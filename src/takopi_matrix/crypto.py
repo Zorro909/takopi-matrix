@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 
 import nio
 
-from takopi.logging import get_logger
+from takopi.api import get_logger
 
 if TYPE_CHECKING:
     pass

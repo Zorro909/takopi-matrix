@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from takopi.api import MessageRef, RenderedMessage, RunningTasks, SendOptions
-from takopi.logging import get_logger
+from takopi.api import get_logger
 
 from ..types import MatrixIncomingMessage, MatrixReaction
 from .config import MatrixBridgeConfig
