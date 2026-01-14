@@ -33,3 +33,6 @@ venv/
 htmlcov/
 .pytest_cache/
 .mypy_cache/
+thoughts/
+.tldr/
+.tldrignore
