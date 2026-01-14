@@ -41,9 +41,7 @@ def _build_startup_message(
     engine_list = ", ".join(available_engines) if available_engines else "none"
     if missing_engines:
         engine_list = f"{engine_list} (not installed: {', '.join(missing_engines)})"
-    project_aliases = sorted(
-        set(runtime.project_aliases()), key=str.lower
-    )
+    project_aliases = sorted(set(runtime.project_aliases()), key=str.lower)
     project_list = ", ".join(project_aliases) if project_aliases else "none"
     return (
         f"\N{OCTOPUS} **takopi is ready**\n\n"
@@ -151,10 +149,10 @@ class MatrixBackend(TransportBackend):
         return interactive_setup(force=force)
 
     def lock_token(
-        self, *, transport_config: dict[str, object], config_path: Path
+        self, *, transport_config: dict[str, object], _config_path: Path
     ) -> str | None:
         try:
-            _, user_id, _, _, _ = _require_matrix_config(transport_config, config_path)
+            _, user_id, _, _, _ = _require_matrix_config(transport_config, _config_path)
             return user_id
         except Exception:
             return None

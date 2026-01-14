@@ -36,3 +36,7 @@ htmlcov/
 thoughts/
 .tldr/
 .tldrignore
+
+# Claude Code cache (keep skills)
+.claude/cache/
+.claude/tsc-cache/

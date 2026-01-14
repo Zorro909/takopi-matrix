@@ -125,6 +125,8 @@ class TestRoomPrefsStore:
     async def test_hot_reload(self, prefs_path: Path) -> None:
         """Store reloads when file is modified externally."""
         import json
+        import os
+        import time
 
         room_id = "!room:example.org"
         store = RoomPrefsStore(prefs_path)
@@ -138,6 +140,10 @@ class TestRoomPrefsStore:
             "rooms": {room_id: {"default_engine": "sonnet"}},
         }
         prefs_path.write_text(json.dumps(data))
+
+        # Ensure mtime changes (some filesystems have low resolution)
+        future_ns = time.time_ns() + 1_000_000  # 1ms in future
+        os.utime(prefs_path, ns=(future_ns, future_ns))
 
         # Should reload and see new value
         result = await store.get_default_engine(room_id)
