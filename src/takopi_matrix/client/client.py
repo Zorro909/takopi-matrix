@@ -1,18 +1,17 @@
+"""Matrix client with outbox-based rate limiting."""
+
 from __future__ import annotations
 
+import functools
 import itertools
 import json
 import time
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import (
     Any,
     Awaitable,
     Callable,
     Hashable,
-    Protocol,
-    TYPE_CHECKING,
-    cast,
 )
 
 import anyio
@@ -20,401 +19,19 @@ import httpx
 import nio
 
 from takopi.logging import get_logger
-from .types import MatrixFile, MatrixIncomingMessage, MatrixReaction, MatrixVoice
+
+from .protocol import (
+    NioClientProtocol,
+    MatrixRetryAfter,
+    SEND_PRIORITY,
+    DELETE_PRIORITY,
+    EDIT_PRIORITY,
+    TYPING_PRIORITY,
+)
+from .outbox import OutboxOp, MatrixOutbox
+from .content_builders import _build_reply_content, _build_edit_content
 
 logger = get_logger(__name__)
-
-SEND_PRIORITY = 0
-DELETE_PRIORITY = 1
-EDIT_PRIORITY = 2
-TYPING_PRIORITY = 3
-
-
-class RetryAfter(Exception):
-    def __init__(self, retry_after: float, description: str | None = None) -> None:
-        super().__init__(description or f"retry after {retry_after}")
-        self.retry_after = float(retry_after)
-        self.description = description
-
-
-class MatrixRetryAfter(RetryAfter):
-    pass
-
-
-class NioClientProtocol(Protocol):
-    """Protocol for matrix-nio AsyncClient compatibility."""
-
-    user_id: str
-    access_token: str  # Writable property for token-based login
-    device_id: str  # Writable property for device identification
-
-    async def close(self) -> None: ...
-
-    async def login(
-        self, password: str | None = None, device_name: str | None = None
-    ) -> Any: ...
-
-    async def sync(
-        self,
-        timeout: int = 30000,
-        sync_filter: dict[str, Any] | None = None,
-        since: str | None = None,
-        full_state: bool = False,
-    ) -> Any: ...
-
-    async def room_send(
-        self,
-        room_id: str,
-        message_type: str,
-        content: dict[str, Any],
-        tx_id: str | None = None,
-        ignore_unverified_devices: bool = True,
-    ) -> Any: ...
-
-    async def room_redact(
-        self,
-        room_id: str,
-        event_id: str,
-        reason: str | None = None,
-        tx_id: str | None = None,
-    ) -> Any: ...
-
-    async def room_typing(
-        self,
-        room_id: str,
-        typing_state: bool = True,
-        timeout: int = 30000,
-    ) -> Any: ...
-
-    async def room_read_markers(
-        self,
-        room_id: str,
-        fully_read_event: str,
-        read_event: str | None = None,
-    ) -> Any: ...
-
-    async def download(
-        self,
-        mxc: str,
-        filename: str | None = None,
-        allow_remote: bool = True,
-    ) -> Any: ...
-
-    async def room_get_event(self, room_id: str, event_id: str) -> Any: ...
-
-    async def join(self, room_id: str) -> Any: ...
-
-    # E2EE methods (optional, called conditionally with getattr)
-    async def keys_upload(self) -> Any: ...
-
-    async def keys_claim(self, users: dict[str, Any]) -> Any: ...
-
-
-if TYPE_CHECKING:
-    from anyio.abc import TaskGroup
-else:
-    TaskGroup = object
-
-
-@dataclass(slots=True)
-class OutboxOp:
-    execute: Callable[[], Awaitable[Any]]
-    priority: int
-    queued_at: float
-    updated_at: float
-    room_id: str | None
-    label: str | None = None
-    done: anyio.Event = field(default_factory=anyio.Event)
-    result: Any = None
-
-    def set_result(self, result: Any) -> None:
-        if self.done.is_set():
-            return
-        self.result = result
-        self.done.set()
-
-
-class MatrixOutbox:
-    """Outbox pattern for rate-limiting Matrix API calls."""
-
-    def __init__(
-        self,
-        *,
-        interval: float = 0.1,
-        clock: Callable[[], float] = time.monotonic,
-        sleep: Callable[[float], Awaitable[None]] = anyio.sleep,
-        on_error: Callable[[OutboxOp, Exception], None] | None = None,
-        on_outbox_error: Callable[[Exception], None] | None = None,
-    ) -> None:
-        self._interval = interval
-        self._clock = clock
-        self._sleep = sleep
-        self._on_error = on_error
-        self._on_outbox_error = on_outbox_error
-        self._pending: dict[Hashable, OutboxOp] = {}
-        self._cond = anyio.Condition()
-        self._start_lock = anyio.Lock()
-        self._closed = False
-        self._tg: TaskGroup | None = None
-        self.next_at = 0.0
-        self.retry_at = 0.0
-
-    async def ensure_worker(self) -> None:
-        async with self._start_lock:
-            if self._tg is not None or self._closed:
-                return
-            self._tg = await anyio.create_task_group().__aenter__()
-            self._tg.start_soon(self.run)
-
-    async def enqueue(self, *, key: Hashable, op: OutboxOp, wait: bool = True) -> Any:
-        await self.ensure_worker()
-        async with self._cond:
-            if self._closed:
-                op.set_result(None)
-                return op.result
-            previous = self._pending.get(key)
-            if previous is not None:
-                op.queued_at = previous.queued_at
-                previous.set_result(None)
-            else:
-                op.queued_at = op.updated_at
-            self._pending[key] = op
-            self._cond.notify()
-        if not wait:
-            return None
-        await op.done.wait()
-        return op.result
-
-    async def drop_pending(self, *, key: Hashable) -> None:
-        async with self._cond:
-            pending = self._pending.pop(key, None)
-            if pending is not None:
-                pending.set_result(None)
-            self._cond.notify()
-
-    async def close(self) -> None:
-        async with self._cond:
-            self._closed = True
-            self.fail_pending()
-            self._cond.notify_all()
-        if self._tg is not None:
-            await self._tg.__aexit__(None, None, None)
-            self._tg = None
-
-    def fail_pending(self) -> None:
-        for pending in list(self._pending.values()):
-            pending.set_result(None)
-        self._pending.clear()
-
-    def pick_locked(self) -> tuple[Hashable, OutboxOp] | None:
-        if not self._pending:
-            return None
-        return min(
-            self._pending.items(),
-            key=lambda item: (item[1].priority, item[1].queued_at),
-        )
-
-    async def execute_op(self, op: OutboxOp) -> Any:
-        try:
-            return await op.execute()
-        except Exception as exc:
-            if isinstance(exc, RetryAfter):
-                raise
-            if self._on_error is not None:
-                self._on_error(op, exc)
-            return None
-
-    async def sleep_until(self, deadline: float) -> None:
-        delay = deadline - self._clock()
-        if delay > 0:
-            await self._sleep(delay)
-
-    async def run(self) -> None:
-        cancel_exc = anyio.get_cancelled_exc_class()
-        try:
-            while True:
-                async with self._cond:
-                    while not self._pending and not self._closed:
-                        await self._cond.wait()
-                    if self._closed and not self._pending:
-                        return
-                blocked_until = max(self.next_at, self.retry_at)
-                if self._clock() < blocked_until:
-                    await self.sleep_until(blocked_until)
-                    continue
-                async with self._cond:
-                    if self._closed and not self._pending:
-                        return
-                    picked = self.pick_locked()
-                    if picked is None:
-                        continue
-                    key, op = picked
-                    self._pending.pop(key, None)
-                started_at = self._clock()
-                try:
-                    result = await self.execute_op(op)
-                except RetryAfter as exc:
-                    self.retry_at = max(self.retry_at, self._clock() + exc.retry_after)
-                    async with self._cond:
-                        if self._closed:
-                            op.set_result(None)
-                        elif key not in self._pending:
-                            self._pending[key] = op
-                            self._cond.notify()
-                        else:
-                            op.set_result(None)
-                    continue
-                self.next_at = started_at + self._interval
-                op.set_result(result)
-        except cancel_exc:
-            return
-        except Exception as exc:
-            async with self._cond:
-                self._closed = True
-                self.fail_pending()
-                self._cond.notify_all()
-            if self._on_outbox_error is not None:
-                self._on_outbox_error(exc)
-            return
-
-
-def parse_matrix_error(response: dict[str, Any]) -> tuple[str, float | None]:
-    """Parse Matrix error response for errcode and retry_after."""
-    errcode = response.get("errcode", "")
-    retry_after_ms = response.get("retry_after_ms")
-    retry_after = retry_after_ms / 1000.0 if retry_after_ms else None
-    return errcode, retry_after
-
-
-def _extract_reply_to(content: dict[str, Any]) -> str | None:
-    """Extract the event ID being replied to from m.relates_to."""
-    relates_to = content.get("m.relates_to")
-    if not isinstance(relates_to, dict):
-        return None
-    in_reply_to = relates_to.get("m.in_reply_to")
-    if not isinstance(in_reply_to, dict):
-        return None
-    event_id = in_reply_to.get("event_id")
-    return event_id if isinstance(event_id, str) else None
-
-
-def _parse_event_common(
-    event: Any,
-    room_id: str,
-    *,
-    allowed_room_ids: set[str],
-    own_user_id: str,
-) -> dict[str, Any] | None:
-    """
-    Extract fields common to all Matrix event types.
-
-    Performs validation and extracts:
-    - sender
-    - event_id
-    - source dict
-    - content dict
-    - reply_to_event_id
-
-    Returns None if validation fails (wrong room, missing fields, own message).
-    """
-    # Validate room
-    if room_id not in allowed_room_ids:
-        return None
-
-    # Extract and validate basic fields
-    sender = getattr(event, "sender", None)
-    event_id = getattr(event, "event_id", None)
-
-    if sender is None or event_id is None:
-        return None
-
-    # Filter out own messages
-    if sender == own_user_id:
-        return None
-
-    # Extract source and content
-    source = getattr(event, "source", {})
-    content = source.get("content", {}) if isinstance(source, dict) else {}
-
-    # Extract reply information
-    reply_to_event_id = _extract_reply_to(content)
-
-    return {
-        "sender": sender,
-        "event_id": event_id,
-        "source": source if isinstance(source, dict) else None,
-        "content": content,
-        "reply_to_event_id": reply_to_event_id,
-    }
-
-
-def _extract_mxc_url(event: Any, content: dict[str, Any]) -> str | None:
-    """
-    Extract mxc URL from regular or encrypted media/audio event.
-
-    Tries two sources:
-    1. Regular media: event.url attribute
-    2. Encrypted media: content["file"]["url"]
-
-    Returns None if no URL found.
-    """
-    # Try regular media URL
-    url = getattr(event, "url", None)
-    if url:
-        return url
-
-    # Try encrypted media structure
-    file_info = content.get("file", {})
-    if isinstance(file_info, dict):
-        url = file_info.get("url")
-        if url:
-            return url
-
-    return None
-
-
-def _build_reply_content(
-    body: str,
-    formatted_body: str | None,
-    reply_to_event_id: str,
-) -> dict[str, Any]:
-    """Build content with m.relates_to for replies."""
-    content: dict[str, Any] = {
-        "msgtype": "m.text",
-        "body": body,
-        "m.relates_to": {
-            "m.in_reply_to": {"event_id": reply_to_event_id},
-        },
-    }
-    if formatted_body:
-        content["format"] = "org.matrix.custom.html"
-        content["formatted_body"] = formatted_body
-    return content
-
-
-def _build_edit_content(
-    body: str,
-    formatted_body: str | None,
-    original_event_id: str,
-) -> dict[str, Any]:
-    """Build content with m.relates_to for edits (m.replace)."""
-    new_content: dict[str, Any] = {
-        "msgtype": "m.text",
-        "body": body,
-    }
-    if formatted_body:
-        new_content["format"] = "org.matrix.custom.html"
-        new_content["formatted_body"] = formatted_body
-
-    return {
-        "msgtype": "m.text",
-        "body": f"* {body}",
-        "m.new_content": new_content,
-        "m.relates_to": {
-            "rel_type": "m.replace",
-            "event_id": original_event_id,
-        },
-    }
 
 
 def _require_login(
@@ -436,11 +53,10 @@ def _require_login(
             # No need for login boilerplate
             ...
     """
-    import functools
 
     @functools.wraps(func)
     async def wrapper(self: "MatrixClient", *args: Any, **kwargs: Any) -> Any:
-        client = await self._ensure_nio_client()
+        await self._ensure_nio_client()
         if not self._logged_in:
             if not await self.login():
                 return None
@@ -596,6 +212,8 @@ class MatrixClient:
             )
             # nio.AsyncClient implements NioClientProtocol structurally
             # Cast required due to type checker limitations with Protocol
+            from typing import cast
+
             self._nio_client = cast(
                 NioClientProtocol,
                 nio.AsyncClient(
@@ -609,6 +227,8 @@ class MatrixClient:
         else:
             # nio.AsyncClient implements NioClientProtocol structurally
             # Cast required due to type checker limitations with Protocol
+            from typing import cast
+
             self._nio_client = cast(
                 NioClientProtocol,
                 nio.AsyncClient(
@@ -1381,178 +1001,3 @@ class MatrixClient:
             self._nio_client = None
         if self._owns_http_client:
             await self._http_client.aclose()
-
-
-def parse_room_message(
-    event: Any,
-    room_id: str,
-    *,
-    allowed_room_ids: set[str],
-    own_user_id: str,
-) -> MatrixIncomingMessage | None:
-    """Parse a nio RoomMessageText event into MatrixIncomingMessage."""
-    common = _parse_event_common(
-        event, room_id, allowed_room_ids=allowed_room_ids, own_user_id=own_user_id
-    )
-    if not common:
-        return None
-
-    # Extract message-specific fields
-    body = getattr(event, "body", "")
-    formatted_body = getattr(event, "formatted_body", None)
-
-    return MatrixIncomingMessage(
-        transport="matrix",
-        room_id=room_id,
-        event_id=common["event_id"],
-        sender=common["sender"],
-        text=body,
-        reply_to_event_id=common["reply_to_event_id"],
-        reply_to_text=None,
-        formatted_body=formatted_body,
-        raw=common["source"],
-    )
-
-
-def parse_room_media(
-    event: Any,
-    room_id: str,
-    *,
-    allowed_room_ids: set[str],
-    own_user_id: str,
-) -> MatrixIncomingMessage | None:
-    """Parse a nio media event into MatrixIncomingMessage with attachments."""
-    common = _parse_event_common(
-        event, room_id, allowed_room_ids=allowed_room_ids, own_user_id=own_user_id
-    )
-    if not common:
-        return None
-
-    # Extract media-specific fields
-    body = getattr(event, "body", "")
-
-    # Extract MXC URL (handles both regular and encrypted media)
-    url = _extract_mxc_url(event, common["content"])
-    if not url:
-        return None
-
-    info = common["content"].get("info", {})
-    mimetype = info.get("mimetype") if isinstance(info, dict) else None
-    size = info.get("size") if isinstance(info, dict) else None
-
-    # Get encryption info for encrypted files
-    file_encryption_info = common["content"].get("file")
-    if not isinstance(file_encryption_info, dict):
-        file_encryption_info = None
-
-    attachment = MatrixFile(
-        mxc_url=url,
-        filename=body,
-        mimetype=mimetype,
-        size=size,
-        file_info=file_encryption_info,
-    )
-
-    return MatrixIncomingMessage(
-        transport="matrix",
-        room_id=room_id,
-        event_id=common["event_id"],
-        sender=common["sender"],
-        text="",
-        reply_to_event_id=common["reply_to_event_id"],
-        reply_to_text=None,
-        attachments=[attachment],
-        raw=common["source"],
-    )
-
-
-def parse_room_audio(
-    event: Any,
-    room_id: str,
-    *,
-    allowed_room_ids: set[str],
-    own_user_id: str,
-) -> MatrixIncomingMessage | None:
-    """Parse a nio audio event into MatrixIncomingMessage with voice."""
-    common = _parse_event_common(
-        event, room_id, allowed_room_ids=allowed_room_ids, own_user_id=own_user_id
-    )
-    if not common:
-        return None
-
-    # Extract audio-specific fields
-    # Extract MXC URL (handles both regular and encrypted audio)
-    url = _extract_mxc_url(event, common["content"])
-    if not url:
-        return None
-
-    info = common["content"].get("info", {})
-    mimetype = info.get("mimetype") if isinstance(info, dict) else None
-    size = info.get("size") if isinstance(info, dict) else None
-    duration = info.get("duration") if isinstance(info, dict) else None
-
-    voice = MatrixVoice(
-        mxc_url=url,
-        mimetype=mimetype,
-        size=size,
-        duration_ms=duration,
-        raw=common["content"],
-    )
-
-    return MatrixIncomingMessage(
-        transport="matrix",
-        room_id=room_id,
-        event_id=common["event_id"],
-        sender=common["sender"],
-        text="",
-        reply_to_event_id=common["reply_to_event_id"],
-        reply_to_text=None,
-        voice=voice,
-        raw=common["source"],
-    )
-
-
-def parse_reaction(
-    event: Any,
-    room_id: str,
-    *,
-    allowed_room_ids: set[str],
-    own_user_id: str,
-) -> MatrixReaction | None:
-    """Parse a nio reaction event."""
-    if room_id not in allowed_room_ids:
-        return None
-
-    sender = getattr(event, "sender", None)
-    event_id = getattr(event, "event_id", None)
-
-    # Type narrowing: ensure sender and event_id are not None
-    if sender is None or event_id is None:
-        return None
-    if sender == own_user_id:
-        return None
-
-    source = getattr(event, "source", {})
-    content = source.get("content", {}) if isinstance(source, dict) else {}
-
-    relates_to = content.get("m.relates_to", {})
-    if not isinstance(relates_to, dict):
-        return None
-
-    rel_type = relates_to.get("rel_type")
-    if rel_type != "m.annotation":
-        return None
-
-    target_event_id = relates_to.get("event_id")
-    key = relates_to.get("key")
-
-    if not target_event_id or not key:
-        return None
-
-    return MatrixReaction(
-        room_id=room_id,
-        event_id=event_id,
-        target_event_id=target_event_id,
-        sender=sender,
-        key=key,
-    )
