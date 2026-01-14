@@ -13,6 +13,12 @@ Release a new version of takopi-matrix to PyPI.
 - "Publish to PyPI"
 - "Cut a release"
 
+## Repository Notes
+
+- **Branch protection**: Main branch requires PRs (no direct push)
+- **Merge method**: Rebase only (no merge commits, no squash)
+- **Tag workflow**: Create tag AFTER PR merge to point to correct commit
+
 ## Pre-flight Checks
 
 Before releasing, verify:
@@ -73,17 +79,51 @@ Update version in both files:
 - `pyproject.toml`: `version = "X.Y.Z"`
 - `src/takopi_matrix/__init__.py`: `__version__ = "X.Y.Z"`
 
-### 3. Create Commit & Tag
+### 3. Create Commit & Release Branch
+
+This repo has branch protection - cannot push directly to main.
 
 ```bash
-git add CHANGELOG.md pyproject.toml src/takopi_matrix/__init__.py
+# Stash any local changes first
+git stash
+
+# Create release branch
+git checkout -b release/vX.Y.Z
+
+# Commit version files
+git add CHANGELOG.md pyproject.toml src/takopi_matrix/__init__.py uv.lock
 git commit -m "Release vX.Y.Z"
+
+# Push branch
+git push -u origin release/vX.Y.Z
+```
+
+### 4. Create PR & Merge
+
+```bash
+# Create PR
+gh pr create --title "Release vX.Y.Z" --body "Release vX.Y.Z"
+
+# Merge with rebase (repo only allows rebase, not merge or squash)
+gh pr merge --rebase --delete-branch
+```
+
+### 5. Tag the Release
+
+**Important:** Create tag AFTER the PR is merged, on the correct commit.
+
+```bash
+# Sync local main with merged PR
+git checkout main
+git fetch origin
+git reset --hard origin/main
+
+# Create and push tag (now points to correct commit)
 git tag vX.Y.Z
-git push origin main
 git push origin vX.Y.Z
 ```
 
-### 4. Verify
+### 6. Verify
 
 - Check GitHub Actions: https://github.com/Zorro909/takopi-matrix/actions
 - Check PyPI: https://pypi.org/project/takopi-matrix/
@@ -99,31 +139,26 @@ Pre-flight checks:
 ✅ Tests: 193/193 passing
 ✅ Build: wheel + sdist created
 
-📋 Commits since v0.1.0:
+📋 Commits since v0.1.1:
 - abc1234 Add room-specific engine routing
 - def5678 Fix Pydantic v2 config handling
-- ghi9012 Update README and add CI workflows
 
-📝 Generating changelog entry:
+📝 Generating changelog entry...
+✅ CHANGELOG.md updated
+✅ pyproject.toml: 0.1.1 → 0.2.0
+✅ __init__.py: 0.1.1 → 0.2.0
 
-## v0.2.0 (2026-01-15)
+Creating release branch and PR...
+✅ Branch: release/v0.2.0
+✅ PR #7 created: https://github.com/Zorro909/takopi-matrix/pull/7
+✅ PR merged (rebase)
 
-### changes
-- Add room-specific engine routing and project binding
-- Add GitHub workflows for CI and PyPI publishing
+Tagging release...
+✅ Tag v0.2.0 pushed
 
-### fixes
-- Fix Pydantic v2 transports config handling in onboarding
-
-### docs
-- Update README with current features and configuration
-
-Updating version files:
-- pyproject.toml: 0.1.0 → 0.2.0
-- __init__.py: 0.1.0 → 0.2.0
-- CHANGELOG.md: Added v0.2.0 entry
-
-Ready to commit and tag?
+🚀 Release workflow triggered:
+- Actions: https://github.com/Zorro909/takopi-matrix/actions
+- PyPI: https://pypi.org/project/takopi-matrix/0.2.0/
 ```
 
 ## Changelog Categories
