@@ -36,7 +36,7 @@ class MatrixFileDownloadConfig:
 class MatrixBridgeConfig:
     """Main configuration for the Matrix bridge."""
 
-    client: "MatrixClient"
+    client: MatrixClient
     runtime: TransportRuntime
     room_ids: list[str]
     user_allowlist: set[str] | None
@@ -45,5 +45,5 @@ class MatrixBridgeConfig:
     voice_transcription: MatrixVoiceTranscriptionConfig | None = None
     file_download: MatrixFileDownloadConfig | None = None
     send_startup_message: bool = True
-    room_prefs: "RoomPrefsStore | None" = None
-    room_project_map: "RoomProjectMap | None" = None
+    room_prefs: RoomPrefsStore | None = None
+    room_project_map: RoomProjectMap | None = None

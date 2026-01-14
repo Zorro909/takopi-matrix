@@ -6,7 +6,7 @@ readme = "README.md"
 license = { file = "LICENSE" }
 requires-python = ">=3.14"
 dependencies = [
-    "takopi>=0.16.0",
+    "takopi>=0.18.0",
     "matrix-nio[e2e]>=0.24",
     "markdown-it-py",
     "structlog>=25.5.0",
@@ -26,9 +26,6 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 
-[project.optional-dependencies]
-dev = ["pytest>=8.0", "anyio[trio]>=4.0"]
-
 [project.urls]
 Homepage = "https://github.com/Zorro909/takopi-matrix"
 Repository = "https://github.com/Zorro909/takopi-matrix"
@@ -43,3 +40,18 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/takopi_matrix"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-anyio>=0.0.0",
+    "pytest-cov>=7.0.0",
+    "ruff>=0.14.0",
+]
+
+[tool.pytest.ini_options]
+addopts = ["--cov=takopi_matrix", "--cov-report=term-missing"]
+testpaths = ["tests"]
+
+[tool.ruff.lint]
+extend-select = ["B", "C4", "PERF", "SIM", "UP"]

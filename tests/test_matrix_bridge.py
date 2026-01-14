@@ -2,19 +2,14 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Any
 
 import anyio
 import pytest
 
-from takopi.context import RunContext
-from takopi.config import ProjectsConfig
-from takopi.markdown import MarkdownParts
-from takopi.model import EngineId, ResumeToken
-from takopi.progress import ProgressState, ProgressTracker
+from takopi.model import EngineId
+from takopi.progress import ProgressState
 from takopi.router import AutoRouter, RunnerEntry
-from takopi.runners.mock import Return, ScriptRunner
+from takopi.runners.mock import ScriptRunner
 from takopi.transport import MessageRef, RenderedMessage, SendOptions
 from takopi_matrix.bridge import (
     _is_cancel_command,
@@ -22,17 +17,14 @@ from takopi_matrix.bridge import (
     MatrixPresenter,
     MatrixTransport,
 )
-from takopi_matrix.types import MatrixIncomingMessage, MatrixReaction
 from matrix_fixtures import (
-    MATRIX_EVENT_ID,
     MATRIX_ROOM_ID,
     MATRIX_SENDER,
-    MATRIX_USER_ID,
     make_matrix_message,
     make_matrix_reaction,
 )
 
-CODEX_ENGINE = EngineId("codex")
+CODEX_ENGINE: EngineId = "codex"
 
 
 # --- Cancel detection ---

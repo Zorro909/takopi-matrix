@@ -23,7 +23,7 @@ from .bridge import (
 from .client import MatrixClient
 from .onboarding import check_setup, interactive_setup
 from .room_prefs import RoomPrefsStore, resolve_prefs_path
-from .room_projects import RoomProjectMap, build_room_project_map
+from .room_projects import build_room_project_map
 
 
 def _get_crypto_store_path() -> Path:
@@ -42,7 +42,7 @@ def _build_startup_message(
     if missing_engines:
         engine_list = f"{engine_list} (not installed: {', '.join(missing_engines)})"
     project_aliases = sorted(
-        {alias for alias in runtime.project_aliases()}, key=str.lower
+        set(runtime.project_aliases()), key=str.lower
     )
     project_list = ", ".join(project_aliases) if project_aliases else "none"
     return (

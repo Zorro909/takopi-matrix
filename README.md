@@ -1,14 +1,26 @@
-# takopi-matrix
+# 🐙 takopi-matrix
 
-Matrix transport backend for [Takopi](https://github.com/banteg/takopi).
+Matrix transport backend for [takopi](https://github.com/banteg/takopi).
 
-Extracted from the main takopi repository as a standalone plugin.
+## Features
+
+- Matrix protocol support via [matrix-nio](https://github.com/matrix-nio/matrix-nio)
+- End-to-end encryption (E2EE) by default
+- Voice message transcription (OpenAI Whisper)
+- File download support
+- Interactive onboarding wizard
+- Multi-room support with per-room engine defaults
+- Project-to-room binding
+
+## Requirements
+
+- Python ≥3.14
+- [libolm](https://gitlab.matrix.org/matrix-org/olm) 3.x (for E2EE)
+- takopi ≥0.18
 
 ## Installation
 
-### Prerequisites
-
-This package requires **libolm** (version 3.x) for end-to-end encryption:
+### 1. Install libolm
 
 | Platform | Command |
 |----------|---------|
@@ -18,23 +30,29 @@ This package requires **libolm** (version 3.x) for end-to-end encryption:
 | openSUSE | `sudo zypper install libolm-devel` |
 | macOS (Homebrew) | `brew install libolm` |
 
-### Install
+### 2. Install takopi-matrix
 
 ```bash
 pip install takopi-matrix
 ```
 
-E2EE (end-to-end encryption) support is included by default.
+Or with uv:
+
+```bash
+uv tool install takopi --with takopi-matrix
+```
 
 ## Configuration
 
-After installation, run the setup wizard:
+### Interactive Setup
 
 ```bash
-takopi setup matrix
+takopi --onboard
 ```
 
-Or manually configure in `~/.takopi/takopi.toml`:
+### Manual Configuration
+
+Add to `~/.takopi/takopi.toml`:
 
 ```toml
 transport = "matrix"
@@ -42,33 +60,24 @@ transport = "matrix"
 [transports.matrix]
 homeserver = "https://matrix.example.org"
 user_id = "@bot:example.org"
-access_token = "your_access_token"
+access_token = "syt_your_access_token"
 room_ids = ["!roomid:example.org"]
+
+# Optional: per-room engine defaults
+[transports.matrix.room_engines]
+"!room1:example.org" = "claude"
+"!room2:example.org" = "codex"
+
+# Optional: project-to-room binding
+[transports.matrix.room_projects]
+"!room1:example.org" = "myproject"
 ```
 
-## Features
+## Documentation
 
-- Matrix protocol support via matrix-nio
-- End-to-end encryption (E2EE) included by default
-- Voice message transcription (via OpenAI)
-- File download support
-- Interactive onboarding wizard
-
-## Non-Public API Notice
-
-This plugin uses some internal takopi APIs that are not yet part of the public `takopi.api` module. These are copied into `takopi_matrix._compat` and marked as deprecated. They include:
-
-- Logging utilities (`get_logger`, `bind_run_context`, `clear_context`, `suppress_logs`)
-- Markdown formatting (`MarkdownFormatter`, `MarkdownParts`, `assemble_markdown_parts`)
-- Progress tracking (`ProgressState`, `ProgressTracker`)
-- Thread scheduling (`ThreadJob`, `ThreadScheduler`)
-- Configuration helpers (`ensure_table`, `read_config`, `write_config`, `HOME_CONFIG_PATH`)
-- Settings loading (`load_settings`)
-- Path utilities (`set_run_base_dir`, `reset_run_base_dir`)
-- Command discovery (`get_command`, `list_command_ids`, `RESERVED_COMMAND_IDS`)
-- Engine discovery (`list_backends`, `install_issue`)
-
-Future versions should migrate these to the official public API when available.
+- [Matrix Transport Reference](docs/matrix.md) - Full configuration options
+- [Architecture Overview](docs/architecture/overview.md) - System design
+- [Development Setup](docs/development/setup.md) - Contributing guide
 
 ## License
 

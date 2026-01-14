@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
 
 import anyio
 
@@ -11,7 +10,6 @@ from takopi.api import (
     MessageRef,
     RenderedMessage,
     RunningTasks,
-    SendOptions,
 )
 from takopi.commands import list_command_ids
 from takopi.ids import RESERVED_COMMAND_IDS
@@ -20,7 +18,11 @@ from takopi.markdown import MarkdownParts
 from takopi.scheduler import ThreadJob, ThreadScheduler
 
 from ..client import MatrixRetryAfter
-from ..engine_defaults import _allowed_room_ids, resolve_context_for_room, resolve_engine_for_message
+from ..engine_defaults import (
+    _allowed_room_ids,
+    resolve_context_for_room,
+    resolve_engine_for_message,
+)
 from ..render import prepare_matrix
 from ..types import MatrixIncomingMessage, MatrixReaction
 from .cancel import _handle_cancel, _handle_cancel_reaction, _is_cancel_command

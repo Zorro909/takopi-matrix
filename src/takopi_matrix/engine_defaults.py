@@ -51,7 +51,7 @@ async def resolve_engine_for_message(
     explicit_engine: str | None,
     room_id: str,
     room_prefs: RoomPrefsStore | None,
-    room_project_map: "RoomProjectMap | None" = None,
+    room_project_map: RoomProjectMap | None = None,
 ) -> EngineResolution:
     """Resolve the engine to use for a message.
 
@@ -121,7 +121,7 @@ async def resolve_engine_for_message(
 def _allowed_room_ids(
     configured_room_ids: list[str],
     runtime: TransportRuntime,
-    room_project_map: "RoomProjectMap | None" = None,
+    room_project_map: RoomProjectMap | None = None,
 ) -> set[str]:
     """Build the set of allowed room IDs.
 
@@ -148,7 +148,7 @@ def resolve_context_for_room(
     *,
     room_id: str,
     directive_context: RunContext | None,
-    room_project_map: "RoomProjectMap | None",
+    room_project_map: RoomProjectMap | None,
 ) -> RunContext | None:
     """Resolve the RunContext for a message in a room.
 

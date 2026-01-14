@@ -15,8 +15,19 @@ from takopi.api import ConfigError
 from takopi.config import HOME_CONFIG_PATH, ensure_table, read_config, write_config
 
 from .config_gen import _mask_token, _render_config
-from .rooms import RoomInvite, _accept_room_invite, _fetch_room_invites, _send_confirmation
-from .ui import _confirm, _prompt_credentials, _prompt_homeserver, _render_engine_table, _suppress_logging
+from .rooms import (
+    RoomInvite,
+    _accept_room_invite,
+    _fetch_room_invites,
+    _send_confirmation,
+)
+from .ui import (
+    _confirm,
+    _prompt_credentials,
+    _prompt_homeserver,
+    _render_engine_table,
+    _suppress_logging,
+)
 from .validation import _check_libolm_available, _display_path, _libolm_install_issue
 
 

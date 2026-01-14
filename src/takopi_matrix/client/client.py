@@ -9,10 +9,8 @@ import time
 from pathlib import Path
 from typing import (
     Any,
-    Awaitable,
-    Callable,
-    Hashable,
 )
+from collections.abc import Awaitable, Callable, Hashable
 
 import anyio
 import httpx
@@ -55,11 +53,10 @@ def _require_login(
     """
 
     @functools.wraps(func)
-    async def wrapper(self: "MatrixClient", *args: Any, **kwargs: Any) -> Any:
+    async def wrapper(self: MatrixClient, *args: Any, **kwargs: Any) -> Any:
         await self._ensure_nio_client()
-        if not self._logged_in:
-            if not await self.login():
-                return None
+        if not self._logged_in and not await self.login():
+            return None
         return await func(self, *args, **kwargs)
 
     return wrapper
@@ -712,9 +709,7 @@ class MatrixClient:
                     typing_state=typing,
                     timeout=timeout_ms,
                 )
-                if isinstance(response, nio.RoomTypingResponse):
-                    return True
-                return False
+                return bool(isinstance(response, nio.RoomTypingResponse))
             except Exception as exc:
                 logger.debug(
                     "matrix.typing.error",
@@ -754,9 +749,7 @@ class MatrixClient:
                     fully_read_event=event_id,
                     read_event=event_id,
                 )
-                if isinstance(response, nio.RoomReadMarkersResponse):
-                    return True
-                return False
+                return bool(isinstance(response, nio.RoomReadMarkersResponse))
             except Exception as exc:
                 logger.debug(
                     "matrix.read_receipt.error",
