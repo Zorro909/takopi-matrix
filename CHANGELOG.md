@@ -1,5 +1,11 @@
 # changelog
 
+## v0.1.1 (2026-01-14)
+
+### fixes
+
+- Fix `AttributeError: 'TransportRuntime' object has no attribute 'project_key_for_alias'` in RoomProjectMap by using correct method `normalize_project_key()`
+
 ## v0.1.0 (2026-01-14)
 
 Initial release of takopi-matrix.
