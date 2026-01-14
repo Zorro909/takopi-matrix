@@ -6,8 +6,8 @@ from __future__ import annotations
 import anyio
 import pytest
 
+from takopi.api import ProgressState
 from takopi.model import EngineId
-from takopi.progress import ProgressState
 from takopi.router import AutoRouter, RunnerEntry
 from takopi.runners.mock import ScriptRunner
 from takopi.transport import MessageRef, RenderedMessage, SendOptions

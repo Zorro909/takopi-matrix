@@ -218,6 +218,7 @@ class TestResolveContextForRoom:
         )
 
         assert result == directive_ctx
+        assert result is not None
         assert result.project == "other"
         assert result.branch == "feature"
 

@@ -5,9 +5,7 @@ from __future__ import annotations
 import textwrap
 from dataclasses import dataclass
 
-from takopi.api import Action
-
-from .progress import ProgressState
+from takopi.api import Action, ProgressState
 
 STATUS = {"running": "▸", "update": "↻", "done": "✓", "fail": "✗"}
 HEADER_SEP = " · "
@@ -76,40 +74,54 @@ def _action_line(action: Action, phase: str, ok: bool | None, width: int | None)
     else:
         detail = action.detail or {}
         exit_code = detail.get("exit_code")
-        status = STATUS["fail"] if isinstance(exit_code, int) and exit_code != 0 else STATUS["done"]
+        status = (
+            STATUS["fail"]
+            if isinstance(exit_code, int) and exit_code != 0
+            else STATUS["done"]
+        )
     suffix = ""
     if isinstance((action.detail or {}).get("exit_code"), int):
-        code = action.detail["exit_code"]  # type: ignore[index]
+        code = action.detail["exit_code"]
         if code != 0:
             suffix = f" (exit {code})"
     return f"{status} {title}{suffix}"
 
 
 class MarkdownFormatter:
-    def __init__(self, *, max_actions: int = 5, command_width: int | None = MAX_CMD_LEN) -> None:
+    def __init__(
+        self, *, max_actions: int = 5, command_width: int | None = MAX_CMD_LEN
+    ) -> None:
         self.max_actions = max(0, max_actions)
         self.command_width = command_width
 
     def render_progress_parts(
         self, state: ProgressState, *, elapsed_s: float, label: str = "working"
     ) -> MarkdownParts:
-        header = _format_header(elapsed_s, state.action_count or None, label, state.engine)
+        header = _format_header(
+            elapsed_s, state.action_count or None, label, state.engine
+        )
         body = self._format_body(state)
-        return MarkdownParts(header=header, body=body, footer=self._format_footer(state))
+        return MarkdownParts(
+            header=header, body=body, footer=self._format_footer(state)
+        )
 
     def render_final_parts(
         self, state: ProgressState, *, elapsed_s: float, status: str, answer: str
     ) -> MarkdownParts:
-        header = _format_header(elapsed_s, state.action_count or None, status, state.engine)
+        header = _format_header(
+            elapsed_s, state.action_count or None, status, state.engine
+        )
         body = answer.strip() or None
-        return MarkdownParts(header=header, body=body, footer=self._format_footer(state))
+        return MarkdownParts(
+            header=header, body=body, footer=self._format_footer(state)
+        )
 
     def _format_footer(self, state: ProgressState) -> str | None:
         lines = [line for line in (state.context_line, state.resume_line) if line]
         return HARD_BREAK.join(lines) if lines else None
 
     def _format_body(self, state: ProgressState) -> str | None:
-        actions = list(state.actions)[-self.max_actions:] if self.max_actions else []
+        actions = list(state.actions)[-self.max_actions :] if self.max_actions else []
         lines = [
             _action_line(a.action, a.display_phase, a.ok, self.command_width)
             for a in actions

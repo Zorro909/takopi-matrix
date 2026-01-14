@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from takopi.markdown import MarkdownParts
+from takopi_matrix.markdown import MarkdownParts
 from takopi_matrix.render import (
     _MAX_BODY_LENGTH,
     prepare_matrix,
@@ -58,7 +58,7 @@ def test_trim_body_at_limit() -> None:
     body = "x" * _MAX_BODY_LENGTH
     result = trim_body(body)
     assert result == body
-    assert len(result) == _MAX_BODY_LENGTH
+    assert result is not None and len(result) == _MAX_BODY_LENGTH
 
 
 def test_trim_body_over_limit() -> None:

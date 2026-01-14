@@ -361,8 +361,8 @@ async def run_main_loop(
                     # TODO: Scheduler expects int IDs (Telegram), but Matrix uses str
                     # This requires architectural fix - see plan for generic scheduler design
                     await scheduler.enqueue_resume(
-                        room_id,  # type: ignore[arg-type]  # str, but expects int
-                        event_id,  # type: ignore[arg-type]  # str, but expects int
+                        room_id,  # str, but expects int
+                        event_id,  # str, but expects int
                         text,
                         resume_token,
                         context,

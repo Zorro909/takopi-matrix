@@ -230,8 +230,8 @@ async def interactive_setup(*, force: bool) -> bool:
             console.print("  [red]libolm not detected[/]")
             console.print("  E2EE requires the libolm system library")
             issue = _libolm_install_issue()
-            for hint in issue.hints:
-                console.print(f"  {hint}")
+            for line in issue.lines:
+                console.print(f"  {line}")
             console.print("\n  after installation, restart setup with --onboard")
             return False
         else:

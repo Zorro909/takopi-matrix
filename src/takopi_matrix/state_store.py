@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import asdict
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 
 import anyio
 
@@ -100,8 +101,7 @@ class JsonStateStore[T: _VersionedState]:
             self._state = self._state_factory()
 
     def _save_locked(self) -> None:
-        from dataclasses import asdict
-
-        payload = asdict(self._state)
+        # self._state is always a dataclass instance created by state_factory
+        payload = asdict(cast(Any, self._state))
         _atomic_write_json(self._path, payload)
         self._mtime_ns = self._stat_mtime_ns()

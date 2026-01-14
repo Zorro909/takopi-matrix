@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import cast
 
 import anyio
 
@@ -148,11 +149,12 @@ class MatrixBackend(TransportBackend):
     async def interactive_setup(self, *, force: bool) -> bool:
         return await interactive_setup(force=force)
 
-    def lock_token(
-        self, *, transport_config: dict[str, object], _config_path: Path
-    ) -> str | None:
+    def lock_token(self, *, transport_config: object, _config_path: Path) -> str | None:
         try:
-            _, user_id, _, _, _ = _require_matrix_config(transport_config, _config_path)
+            if not isinstance(transport_config, dict):
+                return None
+            config = cast(dict[str, object], transport_config)
+            _, user_id, _, _, _ = _require_matrix_config(config, _config_path)
             return user_id
         except Exception:
             return None
@@ -160,30 +162,33 @@ class MatrixBackend(TransportBackend):
     def build_and_run(
         self,
         *,
-        transport_config: dict[str, object],
+        transport_config: object,
         config_path: Path,
         runtime: TransportRuntime,
         final_notify: bool,
         default_engine_override: str | None,
     ) -> None:
+        if not isinstance(transport_config, dict):
+            raise TypeError("transport_config must be a dict")
+        config = cast(dict[str, object], transport_config)
         homeserver, user_id, access_token, password, room_ids = _require_matrix_config(
-            transport_config, config_path
+            config, config_path
         )
 
-        device_id = transport_config.get("device_id")
+        device_id = config.get("device_id")
         if device_id is not None and not isinstance(device_id, str):
             device_id = None
 
-        e2ee_enabled = transport_config.get("e2ee_enabled")
+        e2ee_enabled = config.get("e2ee_enabled")
         crypto_store_path: Path | None = None
         if e2ee_enabled is True or e2ee_enabled is None:
             crypto_store_path = _get_crypto_store_path()
-            raw_path = transport_config.get("crypto_store_path")
+            raw_path = config.get("crypto_store_path")
             if isinstance(raw_path, str) and raw_path.strip():
                 crypto_store_path = Path(raw_path).expanduser()
 
         user_allowlist: set[str] | None = None
-        raw_allowlist = transport_config.get("user_allowlist")
+        raw_allowlist = config.get("user_allowlist")
         if isinstance(raw_allowlist, list):
             user_allowlist = {
                 str(u).strip() for u in raw_allowlist if isinstance(u, str)
@@ -212,16 +217,16 @@ class MatrixBackend(TransportBackend):
             final_notify=final_notify,
         )
 
-        voice_transcription = _build_voice_transcription_config(transport_config)
-        file_download = _build_file_download_config(transport_config)
-        send_startup_message = bool(transport_config.get("send_startup_message", True))
+        voice_transcription = _build_voice_transcription_config(config)
+        file_download = _build_file_download_config(config)
+        send_startup_message = bool(config.get("send_startup_message", True))
 
         # Initialize room preferences store for per-room engine defaults
         room_prefs_path = resolve_prefs_path(config_path)
         room_prefs = RoomPrefsStore(room_prefs_path)
 
         # Build room-to-project mapping from config
-        room_project_map = build_room_project_map(transport_config, runtime)
+        room_project_map = build_room_project_map(config, runtime)
 
         cfg = MatrixBridgeConfig(
             client=client,
