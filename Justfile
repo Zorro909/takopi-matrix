@@ -4,6 +4,9 @@ check:
     uv run ty check src tests
     uv run pytest
 
+format:
+    uv run ruff format src tests
+
 bundle:
     #!/usr/bin/env bash
     set -euo pipefail
