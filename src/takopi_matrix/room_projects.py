@@ -45,8 +45,7 @@ class RoomProjectMap:
         valid_projects = set(runtime.project_aliases())
         for room_id, project_key in room_projects.items():
             # Normalize project key (case-insensitive lookup)
-            project_key.lower()
-            actual_key = runtime.project_key_for_alias(project_key)
+            actual_key = runtime.normalize_project_key(project_key)
 
             if actual_key is not None:
                 self._room_map[room_id] = actual_key

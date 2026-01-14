@@ -19,8 +19,8 @@ def mock_runtime() -> MagicMock:
     """Create a mock TransportRuntime with project info."""
     runtime = MagicMock()
     runtime.project_aliases.return_value = ["myproject", "other"]
-    runtime.project_key_for_alias.side_effect = lambda alias: (
-        alias.lower() if alias.lower() in ("myproject", "other") else None
+    runtime.normalize_project_key.side_effect = lambda key: (
+        key.lower() if key.lower() in ("myproject", "other") else None
     )
     return runtime
 
