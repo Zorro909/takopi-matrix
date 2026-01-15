@@ -1,5 +1,11 @@
 # changelog
 
+## v0.1.2 (2026-01-15)
+
+### fixes
+
+- Fix `asyncio.run()` nested event loop error in interactive setup wizard when running inside existing async context
+
 ## v0.1.1 (2026-01-14)
 
 ### fixes

@@ -1,6 +1,6 @@
 [project]
 name = "takopi-matrix"
-version = "0.1.1"
+version = "0.1.2"
 description = "Matrix transport backend for Takopi"
 readme = "README.md"
 license = { file = "LICENSE" }
