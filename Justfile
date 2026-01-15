@@ -13,3 +13,6 @@ bundle:
     bundle="takopi.git.bundle"
     git bundle create "$bundle" --all
     open -R "$bundle"
+
+dev-install:
+    uv tool install --reinstall takopi --with "."
