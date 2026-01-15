@@ -6,7 +6,7 @@ readme = "README.md"
 license = { file = "LICENSE" }
 requires-python = ">=3.14"
 dependencies = [
-    "takopi>=0.18.0",
+    "takopi>=0.19.0",
     "matrix-nio[e2e]>=0.24",
     "markdown-it-py",
     "structlog>=25.5.0",

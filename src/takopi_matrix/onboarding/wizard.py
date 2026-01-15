@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import shutil
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any
 
-import anyio
 import questionary
 from rich.console import Console
 from rich.panel import Panel
@@ -40,8 +39,8 @@ class MatrixUserInfo:
     device_id: str | None
 
 
-def interactive_setup(*, force: bool) -> bool:
-    """Run the interactive onboarding wizard."""
+async def interactive_setup(*, force: bool) -> bool:
+    """Run the interactive onboarding wizard (async version)."""
     console = Console()
     config_path = HOME_CONFIG_PATH
 
@@ -53,7 +52,7 @@ def interactive_setup(*, force: bool) -> bool:
         return True
 
     if config_path.exists() and force:
-        overwrite = _confirm(
+        overwrite = await _confirm(
             f"update existing config at {_display_path(config_path)}?",
             default=False,
         )
@@ -71,12 +70,12 @@ def interactive_setup(*, force: bool) -> bool:
         console.print(panel)
 
         console.print("step 1: matrix homeserver\n")
-        homeserver = _prompt_homeserver(console)
+        homeserver = await _prompt_homeserver(console)
         if homeserver is None:
             return False
 
         console.print("\nstep 2: authentication\n")
-        creds = _prompt_credentials(console, homeserver)
+        creds = await _prompt_credentials(console, homeserver)
         if creds is None:
             return False
         user_id, access_token, device_id = creds
@@ -88,21 +87,20 @@ def interactive_setup(*, force: bool) -> bool:
 
         while True:
             console.print("  fetching room invites...")
-            invites = cast(
-                list[RoomInvite],
-                anyio.run(_fetch_room_invites, homeserver, user_id, access_token),
+            invites: list[RoomInvite] = await _fetch_room_invites(
+                homeserver, user_id, access_token
             )
 
             if not invites:
                 console.print("  no pending invites found")
-                action = questionary.select(
+                action = await questionary.select(
                     "what would you like to do?",
                     choices=[
                         "refresh invites",
                         "enter room ID manually",
                         "done selecting rooms" if room_ids else "skip (no rooms)",
                     ],
-                ).ask()
+                ).ask_async()
 
                 if action is None:
                     return False
@@ -111,9 +109,9 @@ def interactive_setup(*, force: bool) -> bool:
                     continue
 
                 if action == "enter room ID manually":
-                    room_id = questionary.text(
+                    room_id = await questionary.text(
                         "enter room ID (e.g., !abc123:matrix.org):"
-                    ).ask()
+                    ).ask_async()
                     if room_id and room_id.strip():
                         room_ids.append(room_id.strip())
                         console.print(f"  added: {room_id.strip()}")
@@ -136,10 +134,10 @@ def interactive_setup(*, force: bool) -> bool:
             if room_ids:
                 choices.append("done selecting rooms")
 
-            selected = questionary.select(
+            selected = await questionary.select(
                 "select a room invite to accept:",
                 choices=choices,
-            ).ask()
+            ).ask_async()
 
             if selected is None:
                 return False
@@ -148,9 +146,9 @@ def interactive_setup(*, force: bool) -> bool:
                 continue
 
             if selected == "enter room ID manually":
-                room_id = questionary.text(
+                room_id = await questionary.text(
                     "enter room ID (e.g., !abc123:matrix.org):"
-                ).ask()
+                ).ask_async()
                 if room_id and room_id.strip():
                     room_ids.append(room_id.strip())
                     console.print(f"  added: {room_id.strip()}")
@@ -175,8 +173,7 @@ def interactive_setup(*, force: bool) -> bool:
                 continue
 
             console.print(f"  accepting invite to {selected_invite.room_id}...")
-            accepted = anyio.run(
-                _accept_room_invite,
+            accepted = await _accept_room_invite(
                 homeserver,
                 user_id,
                 access_token,
@@ -189,19 +186,19 @@ def interactive_setup(*, force: bool) -> bool:
             else:
                 console.print(f"  [red]failed to join {selected_invite.room_id}[/]")
 
-            add_more = _confirm("add more rooms?", default=False)
+            add_more = await _confirm("add more rooms?", default=False)
             if not add_more:
                 break
 
         if not room_ids:
             console.print("  [yellow]warning: no rooms selected[/]")
-            proceed = _confirm("continue without rooms?", default=False)
+            proceed = await _confirm("continue without rooms?", default=False)
             if not proceed:
                 return False
 
         if room_ids:
-            sent = anyio.run(
-                _send_confirmation, homeserver, user_id, access_token, room_ids[0]
+            sent = await _send_confirmation(
+                homeserver, user_id, access_token, room_ids[0]
             )
             if sent:
                 console.print("  sent confirmation message")
@@ -214,15 +211,15 @@ def interactive_setup(*, force: bool) -> bool:
 
         default_engine: str | None = None
         if installed_ids:
-            default_engine = questionary.select(
+            default_engine = await questionary.select(
                 "choose default agent:",
                 choices=installed_ids,
-            ).ask()
+            ).ask_async()
             if default_engine is None:
                 return False
         else:
             console.print("no agents found on PATH. install one to continue.")
-            save_anyway = _confirm("save config anyway?", default=False)
+            save_anyway = await _confirm("save config anyway?", default=False)
             if not save_anyway:
                 return False
 
@@ -242,7 +239,7 @@ def interactive_setup(*, force: bool) -> bool:
 
         console.print("\nstep 4.6: startup message")
         console.print("  takopi can send a status message when it starts")
-        send_startup_message = _confirm(
+        send_startup_message = await _confirm(
             "send startup message when bot starts?",
             default=True,
         )
@@ -263,7 +260,7 @@ def interactive_setup(*, force: bool) -> bool:
             console.print(f"  {line}")
         console.print("")
 
-        save = _confirm(
+        save = await _confirm(
             f"save this config to {_display_path(config_path)}?",
             default=True,
         )

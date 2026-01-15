@@ -4,9 +4,7 @@ from __future__ import annotations
 
 import shutil
 from contextlib import contextmanager
-from typing import cast
 
-import anyio
 import questionary
 from prompt_toolkit import PromptSession
 from prompt_toolkit.formatted_text import to_formatted_text
@@ -56,8 +54,8 @@ def _suppress_logging():
         yield
 
 
-def _confirm(message: str, *, default: bool = True) -> bool | None:
-    """Custom yes/no confirmation prompt."""
+async def _confirm(message: str, *, default: bool = True) -> bool | None:
+    """Custom yes/no confirmation prompt (async version)."""
     merged_style = merge_styles_default([None])
     status = {"answer": None, "complete": False}
 
@@ -112,13 +110,15 @@ def _confirm(message: str, *, default: bool = True) -> bool | None:
     question = Question(
         PromptSession(get_prompt_tokens, key_bindings=bindings, style=merged_style).app
     )
-    return question.ask()
+    return await question.ask_async()
 
 
-def _prompt_homeserver(console: Console) -> str | None:
-    """Prompt for Matrix homeserver."""
+async def _prompt_homeserver(console: Console) -> str | None:
+    """Prompt for Matrix homeserver (async version)."""
     while True:
-        server = questionary.text("enter your matrix server (e.g., matrix.org):").ask()
+        server = await questionary.text(
+            "enter your matrix server (e.g., matrix.org):"
+        ).ask_async()
         if server is None:
             return None
         server = server.strip()
@@ -127,21 +127,23 @@ def _prompt_homeserver(console: Console) -> str | None:
             continue
 
         console.print("  discovering homeserver...")
-        homeserver = anyio.run(_discover_homeserver, server)
+        homeserver = await _discover_homeserver(server)
         console.print(f"  found: {homeserver}")
         return homeserver
 
 
-def _prompt_credentials(
+async def _prompt_credentials(
     console: Console,
     homeserver: str,
 ) -> tuple[str, str, str | None] | None:
     """
-    Prompt for Matrix credentials.
+    Prompt for Matrix credentials (async version).
 
     Returns (user_id, access_token, device_id) or None.
     """
-    user_id = questionary.text("enter your user ID (e.g., @bot:matrix.org):").ask()
+    user_id = await questionary.text(
+        "enter your user ID (e.g., @bot:matrix.org):"
+    ).ask_async()
     if user_id is None:
         return None
     user_id = user_id.strip()
@@ -154,50 +156,46 @@ def _prompt_credentials(
         user_id = f"@{user_id}:{domain}"
         console.print(f"  using: {user_id}")
 
-    auth_method = questionary.select(
+    auth_method = await questionary.select(
         "authentication method:",
         choices=["access token (recommended)", "password"],
-    ).ask()
+    ).ask_async()
     if auth_method is None:
         return None
 
     if auth_method == "password":
-        password = questionary.password("enter password:").ask()
+        password = await questionary.password("enter password:").ask_async()
         if password is None:
             return None
 
         console.print("  logging in...")
-        # Cast to override anyio.run's incorrect type stub (returns None instead of func return type)
-        result = cast(
-            tuple[bool, str | None, str | None, str | None],
-            anyio.run(_test_login, homeserver, user_id, password),
-        )
+        result = await _test_login(homeserver, user_id, password)
         ok, token, device_id, error_msg = result
         if not ok or not token:
             if error_msg:
                 console.print(f"  login failed: {error_msg}")
             else:
                 console.print("  login failed")
-            retry = _confirm("try again?", default=True)
+            retry = await _confirm("try again?", default=True)
             if retry:
-                return _prompt_credentials(console, homeserver)
+                return await _prompt_credentials(console, homeserver)
             return None
 
         console.print(f"  logged in (device: {device_id})")
         return user_id, token, device_id
 
-    token = questionary.password("paste access token:").ask()
+    token = await questionary.password("paste access token:").ask_async()
     if token is None:
         return None
     token = token.strip()
 
     console.print("  validating...")
-    ok = anyio.run(_test_token, homeserver, user_id, token)
+    ok = await _test_token(homeserver, user_id, token)
     if not ok:
         console.print("  token validation failed")
-        retry = _confirm("try again?", default=True)
+        retry = await _confirm("try again?", default=True)
         if retry:
-            return _prompt_credentials(console, homeserver)
+            return await _prompt_credentials(console, homeserver)
         return None
 
     console.print("  token valid")
