@@ -11,9 +11,6 @@ from .cancel import _CANCEL_REACTIONS, _is_cancel_command  # Used by tests
 from .commands import parse_slash_command  # Used by tests
 from .runtime import run_main_loop
 
-# Backwards compatibility alias
-_parse_slash_command = parse_slash_command
-
 __all__ = [
     # Config
     "MatrixBridgeConfig",
@@ -26,8 +23,8 @@ __all__ = [
     # Cancel (PRIVATE for tests)
     "_CANCEL_REACTIONS",  # Used by tests
     "_is_cancel_command",  # Used by tests
-    # Commands (PRIVATE for tests)
-    "_parse_slash_command",  # Used by tests
+    # Commands
+    "parse_slash_command",
     # Runtime
     "run_main_loop",
 ]
