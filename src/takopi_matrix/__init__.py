@@ -1,6 +1,6 @@
 """Matrix transport backend for Takopi."""
 
-__version__ = "0.1.2"
+__version__ = "0.2.0"
 
 from .backend import BACKEND
 from .types import MatrixFile, MatrixIncomingMessage, MatrixReaction, MatrixVoice
