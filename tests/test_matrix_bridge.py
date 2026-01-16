@@ -13,7 +13,7 @@ from takopi.runners.mock import ScriptRunner
 from takopi.transport import MessageRef, RenderedMessage, SendOptions
 from takopi_matrix.bridge import (
     _is_cancel_command,
-    _parse_slash_command,
+    parse_slash_command,
     MatrixPresenter,
     MatrixTransport,
 )
@@ -75,73 +75,73 @@ def test_is_cancel_command_partial() -> None:
 
 def test_parse_slash_command_basic() -> None:
     """Basic /cmd arg parsing."""
-    cmd, args = _parse_slash_command("/test hello world")
+    cmd, args = parse_slash_command("/test hello world")
     assert cmd == "test"
     assert args == "hello world"
 
 
 def test_parse_slash_command_no_args() -> None:
     """Command with no arguments."""
-    cmd, args = _parse_slash_command("/help")
+    cmd, args = parse_slash_command("/help")
     assert cmd == "help"
     assert args == ""
 
 
 def test_parse_slash_command_multiline() -> None:
     """Multiline command preserves rest."""
-    cmd, args = _parse_slash_command("/cmd first\nsecond line\nthird")
+    cmd, args = parse_slash_command("/cmd first\nsecond line\nthird")
     assert cmd == "cmd"
     assert args == "first\nsecond line\nthird"
 
 
 def test_parse_slash_command_multiline_no_first_arg() -> None:
     """Multiline command with no first arg."""
-    cmd, args = _parse_slash_command("/cmd\nsecond line")
+    cmd, args = parse_slash_command("/cmd\nsecond line")
     assert cmd == "cmd"
     assert args == "second line"
 
 
 def test_parse_slash_command_bot_suffix() -> None:
     """Command with @bot suffix strips bot name."""
-    cmd, args = _parse_slash_command("/help@mybot extra")
+    cmd, args = parse_slash_command("/help@mybot extra")
     assert cmd == "help"
     assert args == "extra"
 
 
 def test_parse_slash_command_lowercase() -> None:
     """Command is lowercased."""
-    cmd, args = _parse_slash_command("/HELP")
+    cmd, args = parse_slash_command("/HELP")
     assert cmd == "help"
 
-    cmd, args = _parse_slash_command("/HeLp MixedCase")
+    cmd, args = parse_slash_command("/HeLp MixedCase")
     assert cmd == "help"
     assert args == "MixedCase"
 
 
 def test_parse_slash_command_not_command() -> None:
     """Non-command text returns None."""
-    cmd, args = _parse_slash_command("hello world")
+    cmd, args = parse_slash_command("hello world")
     assert cmd is None
     assert args == "hello world"
 
 
 def test_parse_slash_command_empty() -> None:
     """Empty text returns None."""
-    cmd, args = _parse_slash_command("")
+    cmd, args = parse_slash_command("")
     assert cmd is None
     assert args == ""
 
 
 def test_parse_slash_command_just_slash() -> None:
     """Just / returns None."""
-    cmd, args = _parse_slash_command("/")
+    cmd, args = parse_slash_command("/")
     assert cmd is None
     assert args == "/"
 
 
 def test_parse_slash_command_leading_whitespace() -> None:
     """Leading whitespace is ignored."""
-    cmd, args = _parse_slash_command("  /test arg")
+    cmd, args = parse_slash_command("  /test arg")
     assert cmd == "test"
     assert args == "arg"
 
@@ -539,7 +539,7 @@ def test_make_matrix_reaction() -> None:
 
 def test_parse_slash_command_unicode() -> None:
     """Unicode in command args preserved."""
-    cmd, args = _parse_slash_command("/test 你好世界 🎉")
+    cmd, args = parse_slash_command("/test 你好世界 🎉")
     assert cmd == "test"
     assert "你好世界" in args
     assert "🎉" in args
@@ -547,7 +547,7 @@ def test_parse_slash_command_unicode() -> None:
 
 def test_parse_slash_command_quoted_args() -> None:
     """Quoted arguments preserved as-is in raw form."""
-    cmd, args = _parse_slash_command('/cmd "arg with spaces"')
+    cmd, args = parse_slash_command('/cmd "arg with spaces"')
     assert cmd == "cmd"
     assert '"arg with spaces"' in args
 
