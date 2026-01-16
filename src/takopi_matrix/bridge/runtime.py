@@ -22,10 +22,11 @@ from ..engine_defaults import (
     resolve_context_for_room,
     resolve_engine_for_message,
 )
+from ..trigger_mode import resolve_trigger_mode, should_trigger_run
 from ..render import prepare_matrix
 from ..types import MatrixIncomingMessage, MatrixReaction
 from .cancel import _handle_cancel, _handle_cancel_reaction, _is_cancel_command
-from .commands import _dispatch_command, _parse_slash_command
+from .commands import dispatch_command, parse_slash_command
 from .config import MatrixBridgeConfig
 from .events import (
     ExponentialBackoff,
@@ -249,6 +250,7 @@ async def run_main_loop(
     """Main event loop for Matrix transport."""
     _ = default_engine_override  # TODO: Implement engine override support
     running_tasks: RunningTasks = {}
+    own_user_id = cfg.client.user_id
 
     try:
         if not await _startup_sequence(cfg):
@@ -343,11 +345,40 @@ async def run_main_loop(
 
                 await cfg.client.send_read_receipt(room_id, event_id)
 
+                # Check trigger mode for this room
+                trigger_mode = await resolve_trigger_mode(
+                    room_id=room_id,
+                    room_prefs=cfg.room_prefs,
+                )
+                if trigger_mode == "mentions":
+                    # Determine if message is a reply to a bot message
+                    reply_to_is_bot = False
+                    if reply_to is not None:
+                        reply_to_is_bot = (
+                            MessageRef(channel_id=room_id, message_id=reply_to)
+                            in running_tasks
+                        )
+                    if not should_trigger_run(
+                        text,
+                        own_user_id=own_user_id,
+                        own_display_name=None,  # TODO: get display name from client
+                        reply_to_is_bot=reply_to_is_bot,
+                        runtime=cfg.runtime,
+                        command_ids=command_ids,
+                        reserved_room_commands=reserved_commands,
+                    ):
+                        logger.debug(
+                            "matrix.trigger.skipped",
+                            room_id=room_id,
+                            trigger_mode=trigger_mode,
+                        )
+                        continue
+
                 if _is_cancel_command(text):
                     tg.start_soon(_handle_cancel, cfg, msg, running_tasks)
                     continue
 
-                command_id, args_text = _parse_slash_command(text)
+                command_id, args_text = parse_slash_command(text)
                 if command_id is not None and command_id not in reserved_commands:
                     if command_id not in command_ids:
                         command_ids.update(
@@ -355,7 +386,7 @@ async def run_main_loop(
                         )
                     if command_id in command_ids:
                         tg.start_soon(
-                            _dispatch_command,
+                            dispatch_command,
                             cfg,
                             msg,
                             text,
