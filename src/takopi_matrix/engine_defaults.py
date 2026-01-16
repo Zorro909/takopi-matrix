@@ -118,7 +118,7 @@ async def resolve_engine_for_message(
     )
 
 
-def _allowed_room_ids(
+def build_allowed_room_ids(
     configured_room_ids: list[str],
     runtime: TransportRuntime,
     room_project_map: RoomProjectMap | None = None,

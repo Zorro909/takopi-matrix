@@ -181,15 +181,15 @@ class TestEngineDefaultsIntegration:
         self,
         mock_runtime: MagicMock,
     ) -> None:
-        """_allowed_room_ids includes project-bound rooms."""
-        from takopi_matrix.engine_defaults import _allowed_room_ids
+        """build_allowed_room_ids includes project-bound rooms."""
+        from takopi_matrix.engine_defaults import build_allowed_room_ids
 
         room_map = RoomProjectMap(
             {"!project:example.org": "myproject"},
             mock_runtime,
         )
 
-        allowed = _allowed_room_ids(
+        allowed = build_allowed_room_ids(
             ["!main:example.org"],  # explicitly configured
             mock_runtime,
             room_map,

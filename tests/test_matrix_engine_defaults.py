@@ -9,7 +9,7 @@ import pytest
 
 from takopi_matrix.engine_defaults import (
     EngineResolution,
-    _allowed_room_ids,
+    build_allowed_room_ids,
     resolve_engine_for_message,
 )
 from takopi_matrix.room_prefs import RoomPrefsStore
@@ -190,7 +190,7 @@ class TestResolveEngineForMessage:
 class TestAllowedRoomIds:
     def test_configured_rooms_included(self) -> None:
         runtime = MagicMock()
-        result = _allowed_room_ids(
+        result = build_allowed_room_ids(
             ["!room1:example.org", "!room2:example.org"],
             runtime,
         )
@@ -198,12 +198,12 @@ class TestAllowedRoomIds:
 
     def test_empty_list(self) -> None:
         runtime = MagicMock()
-        result = _allowed_room_ids([], runtime)
+        result = build_allowed_room_ids([], runtime)
         assert result == set()
 
     def test_deduplicates(self) -> None:
         runtime = MagicMock()
-        result = _allowed_room_ids(
+        result = build_allowed_room_ids(
             ["!room:example.org", "!room:example.org"],
             runtime,
         )

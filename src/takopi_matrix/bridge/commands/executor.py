@@ -1,16 +1,13 @@
-"""Command parsing and execution."""
+"""Command executor for Matrix transport."""
 
 from __future__ import annotations
 
-import shlex
 from collections.abc import Awaitable, Callable, Sequence
 
 import anyio
 
 from takopi.api import (
-    CommandContext,
     CommandExecutor,
-    ConfigError,
     ExecBridgeConfig,
     MessageRef,
     RenderedMessage,
@@ -20,45 +17,8 @@ from takopi.api import (
     RunResult,
     SendOptions,
     TransportRuntime,
+    ThreadScheduler,
 )
-from takopi.api import get_command, get_logger, ThreadScheduler
-
-from ..types import MatrixIncomingMessage
-from .config import MatrixBridgeConfig
-
-logger = get_logger(__name__)
-
-
-def _parse_slash_command(text: str) -> tuple[str | None, str]:
-    """Parse a slash command from text, returning (command_id, args_text)."""
-    stripped = text.lstrip()
-    if not stripped.startswith("/"):
-        return None, text
-    lines = stripped.splitlines()
-    if not lines:
-        return None, text
-    first_line = lines[0]
-    token, _, rest = first_line.partition(" ")
-    command = token[1:]
-    if not command:
-        return None, text
-    if "@" in command:
-        command = command.split("@", 1)[0]
-    args_text = rest
-    if len(lines) > 1:
-        tail = "\n".join(lines[1:])
-        args_text = f"{args_text}\n{tail}" if args_text else tail
-    return command.lower(), args_text
-
-
-def _split_command_args(text: str) -> tuple[str, ...]:
-    """Split command arguments using shell-like parsing."""
-    if not text.strip():
-        return ()
-    try:
-        return tuple(shlex.split(text))
-    except ValueError:
-        return tuple(text.split())
 
 
 class _CaptureTransport:
@@ -96,7 +56,7 @@ class _CaptureTransport:
         return None
 
 
-class _MatrixCommandExecutor(CommandExecutor):
+class MatrixCommandExecutor(CommandExecutor):
     """Command executor for Matrix transport."""
 
     def __init__(
@@ -201,74 +161,3 @@ class _MatrixCommandExecutor(CommandExecutor):
                 tg.start_soon(run_idx, idx, request)
 
         return [result for result in results if result is not None]
-
-
-async def _dispatch_command(
-    cfg: MatrixBridgeConfig,
-    msg: MatrixIncomingMessage,
-    text: str,
-    command_id: str,
-    args_text: str,
-    running_tasks: RunningTasks,
-    scheduler: ThreadScheduler,
-    run_engine_fn: Callable[..., Awaitable[None]],
-) -> None:
-    """Dispatch and execute a slash command."""
-    allowlist = cfg.runtime.allowlist
-    room_id = msg.room_id
-    event_id = msg.event_id
-    reply_ref = (
-        MessageRef(channel_id=room_id, message_id=msg.reply_to_event_id)
-        if msg.reply_to_event_id is not None
-        else None
-    )
-    executor = _MatrixCommandExecutor(
-        exec_cfg=cfg.exec_cfg,
-        runtime=cfg.runtime,
-        running_tasks=running_tasks,
-        scheduler=scheduler,
-        room_id=room_id,
-        event_id=event_id,
-        run_engine_fn=run_engine_fn,
-    )
-    message_ref = MessageRef(channel_id=room_id, message_id=event_id)
-    try:
-        backend = get_command(command_id, allowlist=allowlist, required=False)
-    except ConfigError as exc:
-        await executor.send(f"error:\n{exc}", reply_to=message_ref, notify=True)
-        return
-    if backend is None:
-        return
-    try:
-        plugin_config = cfg.runtime.plugin_config(command_id)
-    except ConfigError as exc:
-        await executor.send(f"error:\n{exc}", reply_to=message_ref, notify=True)
-        return
-    ctx = CommandContext(
-        command=command_id,
-        text=text,
-        args_text=args_text,
-        args=_split_command_args(args_text),
-        message=message_ref,
-        reply_to=reply_ref,
-        reply_text=msg.reply_to_text,
-        config_path=cfg.runtime.config_path,
-        plugin_config=plugin_config,
-        runtime=cfg.runtime,
-        executor=executor,
-    )
-    try:
-        result = await backend.handle(ctx)
-    except Exception as exc:
-        logger.exception(
-            "command.failed",
-            command=command_id,
-            error=str(exc),
-            error_type=exc.__class__.__name__,
-        )
-        await executor.send(f"error:\n{exc}", reply_to=message_ref, notify=True)
-        return
-    if result is not None:
-        reply_to = message_ref if result.reply_to is None else result.reply_to
-        await executor.send(result.text, reply_to=reply_to, notify=result.notify)
-    return None

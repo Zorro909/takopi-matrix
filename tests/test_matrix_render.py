@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from takopi_matrix.markdown import MarkdownParts
 from takopi_matrix.render import (
-    _MAX_BODY_LENGTH,
+    MAX_BODY_LENGTH,
     prepare_matrix,
     render_markdown_to_html,
     split_at_paragraph,
@@ -55,19 +55,19 @@ def test_trim_body_under_limit() -> None:
 
 def test_trim_body_at_limit() -> None:
     """Body at exact limit is unchanged."""
-    body = "x" * _MAX_BODY_LENGTH
+    body = "x" * MAX_BODY_LENGTH
     result = trim_body(body)
     assert result == body
-    assert result is not None and len(result) == _MAX_BODY_LENGTH
+    assert result is not None and len(result) == MAX_BODY_LENGTH
 
 
 def test_trim_body_over_limit() -> None:
     """Body over limit is truncated with ellipsis."""
-    body = "x" * (_MAX_BODY_LENGTH + 100)
+    body = "x" * (MAX_BODY_LENGTH + 100)
     result = trim_body(body)
     assert result is not None
     assert result.endswith("...")
-    assert len(result) == _MAX_BODY_LENGTH
+    assert len(result) == MAX_BODY_LENGTH
 
 
 def test_trim_body_custom_limit() -> None:
@@ -118,11 +118,11 @@ def test_prepare_matrix_handles_none_body() -> None:
 
 def test_prepare_matrix_trims_long_body() -> None:
     """prepare_matrix trims body exceeding limit."""
-    long_body = "x" * (_MAX_BODY_LENGTH + 1000)
+    long_body = "x" * (MAX_BODY_LENGTH + 1000)
     parts = MarkdownParts(header="", body=long_body)
     plain, html = prepare_matrix(parts)
     # The body gets trimmed
-    assert len(plain) <= _MAX_BODY_LENGTH + 100  # Some slack for header/footer
+    assert len(plain) <= MAX_BODY_LENGTH + 100  # Some slack for header/footer
 
 
 def test_split_at_paragraph_under_limit() -> None:

@@ -136,7 +136,7 @@ class TestRoomPrefsStore:
 
         # Modify file externally
         data = {
-            "version": 1,
+            "version": 2,
             "rooms": {room_id: {"default_engine": "sonnet"}},
         }
         prefs_path.write_text(json.dumps(data))
