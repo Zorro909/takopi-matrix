@@ -53,7 +53,7 @@ def _build_startup_message(
     )
 
 
-def _build_voice_transcription_config(
+def build_voice_transcription_config(
     transport_config: dict[str, object],
 ) -> MatrixVoiceTranscriptionConfig:
     return MatrixVoiceTranscriptionConfig(
@@ -61,7 +61,7 @@ def _build_voice_transcription_config(
     )
 
 
-def _build_file_download_config(
+def build_file_download_config(
     transport_config: dict[str, object],
 ) -> MatrixFileDownloadConfig:
     enabled = bool(transport_config.get("file_download", True))
@@ -77,13 +77,25 @@ def _build_file_download_config(
     )
 
 
-def _require_matrix_config(
+def validate_matrix_config(
     config: dict[str, object], config_path: Path
 ) -> tuple[str, str, str | None, str | None, list[str]]:
     """
     Extract and validate Matrix configuration.
 
-    Returns (homeserver, user_id, access_token, password, room_ids).
+    This is the public validation function for Matrix transport config.
+    Validates required fields and returns parsed values.
+
+    Args:
+        config: The Matrix transport configuration dictionary.
+        config_path: Path to the config file (for error messages).
+
+    Returns:
+        Tuple of (homeserver, user_id, access_token, password, room_ids).
+        access_token or password will be None (but not both).
+
+    Raises:
+        ConfigError: If required fields are missing or invalid.
     """
     from takopi.api import ConfigError
 
@@ -154,7 +166,7 @@ class MatrixBackend(TransportBackend):
             if not isinstance(transport_config, dict):
                 return None
             config = cast(dict[str, object], transport_config)
-            _, user_id, _, _, _ = _require_matrix_config(config, _config_path)
+            _, user_id, _, _, _ = validate_matrix_config(config, _config_path)
             return user_id
         except Exception:
             return None
@@ -171,7 +183,7 @@ class MatrixBackend(TransportBackend):
         if not isinstance(transport_config, dict):
             raise TypeError("transport_config must be a dict")
         config = cast(dict[str, object], transport_config)
-        homeserver, user_id, access_token, password, room_ids = _require_matrix_config(
+        homeserver, user_id, access_token, password, room_ids = validate_matrix_config(
             config, config_path
         )
 
@@ -226,8 +238,8 @@ class MatrixBackend(TransportBackend):
             final_notify=final_notify,
         )
 
-        voice_transcription = _build_voice_transcription_config(config)
-        file_download = _build_file_download_config(config)
+        voice_transcription = build_voice_transcription_config(config)
+        file_download = build_file_download_config(config)
         send_startup_message = bool(config.get("send_startup_message", True))
 
         # Initialize room preferences store for per-room engine defaults

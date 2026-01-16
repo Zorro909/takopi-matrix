@@ -6,7 +6,8 @@ from .markdown import MarkdownParts, assemble_markdown_parts
 
 _MD_RENDERER = MarkdownIt("commonmark", {"html": False})
 
-_MAX_BODY_LENGTH = 32000
+# Maximum message body length for Matrix (public constant)
+MAX_BODY_LENGTH = 32000
 
 
 def render_markdown_to_html(md: str) -> str:
@@ -14,7 +15,7 @@ def render_markdown_to_html(md: str) -> str:
     return _MD_RENDERER.render(md or "")
 
 
-def trim_body(body: str | None, max_len: int = _MAX_BODY_LENGTH) -> str | None:
+def trim_body(body: str | None, max_len: int = MAX_BODY_LENGTH) -> str | None:
     """Trim body for Matrix's message size limits."""
     if not body:
         return None
@@ -39,7 +40,7 @@ def prepare_matrix(parts: MarkdownParts) -> tuple[str, str]:
     return plain_text, formatted_html
 
 
-def split_at_paragraph(text: str, max_length: int = _MAX_BODY_LENGTH) -> list[str]:
+def split_at_paragraph(text: str, max_length: int = MAX_BODY_LENGTH) -> list[str]:
     """
     Split long text at paragraph boundaries.
 

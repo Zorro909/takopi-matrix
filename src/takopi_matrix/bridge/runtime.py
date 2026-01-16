@@ -18,7 +18,7 @@ from ..markdown import MarkdownParts
 
 from ..client import MatrixRetryAfter
 from ..engine_defaults import (
-    _allowed_room_ids,
+    build_allowed_room_ids,
     resolve_context_for_room,
     resolve_engine_for_message,
 )
@@ -139,7 +139,7 @@ async def _sync_loop(
 ) -> None:
     """Continuous sync loop with reconnection."""
     backoff = ExponentialBackoff()
-    allowed_room_ids = _allowed_room_ids(
+    allowed_room_ids = build_allowed_room_ids(
         cfg.room_ids, cfg.runtime, cfg.room_project_map
     )
     own_user_id = cfg.client.user_id
