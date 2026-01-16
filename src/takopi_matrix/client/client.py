@@ -425,10 +425,14 @@ class MatrixClient:
                 return
 
             users = getattr(room, "users", {})
-            device_store = getattr(client, "device_store", {})
+            device_store = getattr(client, "device_store", None)
+            if device_store is None:
+                return
 
-            for user_id in users:
-                devices = device_store.get(user_id, {})
+            # DeviceStore.items() returns (user_id, dict(device_id, OlmDevice))
+            for user_id, devices in device_store.items():
+                if user_id not in users:
+                    continue
                 for device_id, device in devices.items():
                     if not getattr(device, "verified", False):
                         verify_fn = getattr(client, "verify_device", None)
