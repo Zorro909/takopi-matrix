@@ -51,6 +51,7 @@ dev = [
     "pytest-anyio>=0.0.0",
     "pytest-cov>=7.0.0",
     "ruff>=0.14.0",
+    "ty>=0.0.1a7",
 ]
 
 [tool.pytest.ini_options]

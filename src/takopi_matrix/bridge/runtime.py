@@ -85,13 +85,13 @@ async def _persist_new_rooms(room_ids: list[str], config_path: object) -> None:
         if not added:
             return
 
-        # Update config
+        # Update config (type ignores: tomlkit's Container typing is incomplete)
         if "transports" not in config:
             config["transports"] = tomlkit.table()
-        if "matrix" not in config["transports"]:
-            config["transports"]["matrix"] = tomlkit.table()
+        if "matrix" not in config["transports"]:  # type: ignore[operator]
+            config["transports"]["matrix"] = tomlkit.table()  # type: ignore[index]
 
-        config["transports"]["matrix"]["room_ids"] = current_rooms
+        config["transports"]["matrix"]["room_ids"] = current_rooms  # type: ignore[index]
 
         # Write back atomically
         temp_path = config_path.with_suffix(".toml.tmp")
