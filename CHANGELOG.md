@@ -1,5 +1,18 @@
 # changelog
 
+## v0.2.0 (2026-01-16)
+
+### changes
+
+- Bump takopi dependency to 0.20.0
+- Auto-join room invites from allowed users
+- Refactor to use takopi.api module, own markdown/progress rendering
+
+### fixes
+
+- Fix DeviceStore.items() usage (replace non-existent .get() method)
+- Resolve type errors with takopi.api imports
+
 ## v0.1.2 (2026-01-15)
 
 ### fixes
