@@ -4,14 +4,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from takopi.api import get_logger
 
+from .engine_overrides import EngineOverrides, normalize_overrides
 from .state_store import JsonStateStore
 
 logger = get_logger(__name__)
 
-STATE_VERSION = 1
+STATE_VERSION = 2
 STATE_FILENAME = "matrix_room_prefs_state.json"
 
 
@@ -20,6 +22,8 @@ class _RoomPrefs:
     """Preferences for a single room."""
 
     default_engine: str | None = None
+    trigger_mode: str | None = None
+    engine_overrides: dict[str, dict[str, str | None]] = field(default_factory=dict)
 
 
 @dataclass
@@ -27,7 +31,7 @@ class _RoomPrefsState:
     """Root state containing all room preferences."""
 
     version: int
-    rooms: dict[str, dict[str, str | None]] = field(default_factory=dict)
+    rooms: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
 def resolve_prefs_path(config_path: Path) -> Path:
@@ -45,6 +49,28 @@ def _normalize_text(value: str | None) -> str | None:
     if value is None:
         return None
     value = value.strip()
+    return value or None
+
+
+def _normalize_trigger_mode(value: str | None) -> str | None:
+    """Normalize trigger mode value.
+
+    Returns 'mentions' if valid, None otherwise (default is 'all').
+    """
+    if value is None:
+        return None
+    value = value.strip().lower()
+    if value == "mentions":
+        return "mentions"
+    # 'all' is the default, so we store None
+    return None
+
+
+def _normalize_engine_id(value: str | None) -> str | None:
+    """Normalize engine ID to lowercase."""
+    if value is None:
+        return None
+    value = value.strip().lower()
     return value or None
 
 
@@ -69,6 +95,8 @@ class RoomPrefsStore(JsonStateStore[_RoomPrefsState]):
             log_prefix="matrix.room_prefs",
         )
 
+    # --- Default Engine ---
+
     async def get_default_engine(self, room_id: str) -> str | None:
         """Get the default engine for a room, or None if not set."""
         async with self._lock:
@@ -83,9 +111,14 @@ class RoomPrefsStore(JsonStateStore[_RoomPrefsState]):
         normalized = _normalize_text(engine)
         async with self._lock:
             self._reload_locked_if_needed()
+            room = self._get_room_locked(room_id)
             if normalized is None:
-                if self._remove_room_locked(room_id):
-                    self._save_locked()
+                if room is None:
+                    return
+                room["default_engine"] = None
+                if self._room_is_empty(room):
+                    self._remove_room_locked(room_id)
+                self._save_locked()
                 return
             room = self._ensure_room_locked(room_id)
             room["default_engine"] = normalized
@@ -94,6 +127,122 @@ class RoomPrefsStore(JsonStateStore[_RoomPrefsState]):
     async def clear_default_engine(self, room_id: str) -> None:
         """Clear the default engine for a room."""
         await self.set_default_engine(room_id, None)
+
+    # --- Trigger Mode ---
+
+    async def get_trigger_mode(self, room_id: str) -> str | None:
+        """Get the trigger mode for a room ('mentions' or None for 'all')."""
+        async with self._lock:
+            self._reload_locked_if_needed()
+            room = self._get_room_locked(room_id)
+            if room is None:
+                return None
+            return _normalize_trigger_mode(room.get("trigger_mode"))
+
+    async def set_trigger_mode(self, room_id: str, mode: str | None) -> None:
+        """Set the trigger mode for a room.
+
+        Args:
+            room_id: The Matrix room ID.
+            mode: 'mentions' to only respond to mentions, 'all' or None for default.
+        """
+        normalized = _normalize_trigger_mode(mode)
+        async with self._lock:
+            self._reload_locked_if_needed()
+            room = self._get_room_locked(room_id)
+            if normalized is None:
+                if room is None:
+                    return
+                room["trigger_mode"] = None
+                if self._room_is_empty(room):
+                    self._remove_room_locked(room_id)
+                self._save_locked()
+                return
+            room = self._ensure_room_locked(room_id)
+            room["trigger_mode"] = normalized
+            self._save_locked()
+
+    async def clear_trigger_mode(self, room_id: str) -> None:
+        """Clear the trigger mode for a room (resets to 'all')."""
+        await self.set_trigger_mode(room_id, None)
+
+    # --- Engine Overrides ---
+
+    async def get_engine_override(
+        self, room_id: str, engine: str
+    ) -> EngineOverrides | None:
+        """Get engine-specific overrides (model, reasoning) for a room.
+
+        Args:
+            room_id: The Matrix room ID.
+            engine: The engine ID to get overrides for.
+
+        Returns:
+            EngineOverrides if any are set, None otherwise.
+        """
+        engine_key = _normalize_engine_id(engine)
+        if engine_key is None:
+            return None
+        async with self._lock:
+            self._reload_locked_if_needed()
+            room = self._get_room_locked(room_id)
+            if room is None:
+                return None
+            overrides_dict = room.get("engine_overrides", {})
+            if not isinstance(overrides_dict, dict):
+                return None
+            override_data = overrides_dict.get(engine_key)
+            if override_data is None or not isinstance(override_data, dict):
+                return None
+            override = EngineOverrides(
+                model=override_data.get("model"),
+                reasoning=override_data.get("reasoning"),
+            )
+            return normalize_overrides(override)
+
+    async def set_engine_override(
+        self, room_id: str, engine: str, override: EngineOverrides | None
+    ) -> None:
+        """Set engine-specific overrides for a room.
+
+        Args:
+            room_id: The Matrix room ID.
+            engine: The engine ID to set overrides for.
+            override: The overrides to set, or None to clear.
+        """
+        engine_key = _normalize_engine_id(engine)
+        if engine_key is None:
+            return
+        normalized = normalize_overrides(override)
+        async with self._lock:
+            self._reload_locked_if_needed()
+            room = self._get_room_locked(room_id)
+            if normalized is None:
+                if room is None:
+                    return
+                overrides_dict = room.get("engine_overrides", {})
+                if isinstance(overrides_dict, dict):
+                    overrides_dict.pop(engine_key, None)
+                if self._room_is_empty(room):
+                    self._remove_room_locked(room_id)
+                self._save_locked()
+                return
+            room = self._ensure_room_locked(room_id)
+            if "engine_overrides" not in room or not isinstance(
+                room.get("engine_overrides"), dict
+            ):
+                room["engine_overrides"] = {}
+            room["engine_overrides"][engine_key] = {
+                "model": normalized.model,
+                "reasoning": normalized.reasoning,
+            }
+            self._save_locked()
+
+    async def clear_engine_override(self, room_id: str, engine: str) -> None:
+        """Clear engine-specific overrides for a room."""
+        await self.set_engine_override(room_id, engine, None)
+
+    # --- Utility Methods ---
 
     async def get_all_rooms(self) -> dict[str, str | None]:
         """Get all rooms with their default engines."""
@@ -104,19 +253,50 @@ class RoomPrefsStore(JsonStateStore[_RoomPrefsState]):
                 for room_id, prefs in self._state.rooms.items()
             }
 
-    def _get_room_locked(self, room_id: str) -> dict[str, str | None] | None:
+    # --- Internal Methods ---
+
+    def _get_room_locked(self, room_id: str) -> dict[str, Any] | None:
         """Get room prefs dict, or None if room not in state."""
         return self._state.rooms.get(_room_key(room_id))
 
-    def _ensure_room_locked(self, room_id: str) -> dict[str, str | None]:
+    def _ensure_room_locked(self, room_id: str) -> dict[str, Any]:
         """Get or create room prefs dict."""
         key = _room_key(room_id)
         entry = self._state.rooms.get(key)
         if entry is not None:
             return entry
-        entry = {"default_engine": None}
+        entry = {
+            "default_engine": None,
+            "trigger_mode": None,
+            "engine_overrides": {},
+        }
         self._state.rooms[key] = entry
         return entry
+
+    def _room_is_empty(self, room: dict[str, Any]) -> bool:
+        """Check if a room dict has no meaningful preferences."""
+        if _normalize_text(room.get("default_engine")) is not None:
+            return False
+        if _normalize_trigger_mode(room.get("trigger_mode")) is not None:
+            return False
+        overrides = room.get("engine_overrides", {})
+        return not (
+            isinstance(overrides, dict) and self._has_engine_overrides(overrides)
+        )
+
+    @staticmethod
+    def _has_engine_overrides(overrides: dict[str, Any]) -> bool:
+        """Check if there are any non-empty engine overrides."""
+        for override_data in overrides.values():
+            if not isinstance(override_data, dict):
+                continue
+            override = EngineOverrides(
+                model=override_data.get("model"),
+                reasoning=override_data.get("reasoning"),
+            )
+            if normalize_overrides(override) is not None:
+                return True
+        return False
 
     def _remove_room_locked(self, room_id: str) -> bool:
         """Remove room from state. Returns True if room was present."""

@@ -8,8 +8,11 @@ from .config import (
 from .presenter import MatrixPresenter
 from .transport import MatrixTransport
 from .cancel import _CANCEL_REACTIONS, _is_cancel_command  # Used by tests
-from .commands import _parse_slash_command  # Used by tests
+from .commands import parse_slash_command  # Used by tests
 from .runtime import run_main_loop
+
+# Backwards compatibility alias
+_parse_slash_command = parse_slash_command
 
 __all__ = [
     # Config
