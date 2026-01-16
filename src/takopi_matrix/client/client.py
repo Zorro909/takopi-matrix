@@ -113,6 +113,27 @@ class MatrixClient:
         """Check if E2EE dependencies are available."""
         return hasattr(nio, "crypto")
 
+    async def get_display_name(self) -> str | None:
+        """Get the bot's display name from the Matrix server.
+
+        Returns:
+            The display name, or None if not available or not logged in.
+        """
+        await self._ensure_nio_client()
+        if not self._logged_in or self._nio_client is None:
+            return None
+        try:
+            response = await self._nio_client.get_displayname(self.user_id)
+            if isinstance(response, nio.ProfileGetDisplayNameResponse):
+                return response.displayname
+        except Exception as exc:
+            logger.warning(
+                "matrix.display_name.fetch_failed",
+                error=str(exc),
+                error_type=exc.__class__.__name__,
+            )
+        return None
+
     def _default_sync_store_path(self) -> Path:
         """Get the default path for storing the sync token."""
         return Path.home() / ".takopi" / "matrix_sync.json"

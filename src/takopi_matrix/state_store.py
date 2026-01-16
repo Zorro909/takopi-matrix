@@ -69,6 +69,23 @@ class JsonStateStore[T: _VersionedState]:
             return
         self._load_locked()
 
+    def _migrate_state(self, data: dict[str, Any], from_version: int) -> dict[str, Any]:
+        """Migrate state data from an older version.
+
+        Override this method to implement migrations for specific state stores.
+        The default implementation returns None to indicate no migration is available.
+
+        Args:
+            data: The raw state data loaded from disk.
+            from_version: The version of the loaded data.
+
+        Returns:
+            Migrated data dict with updated version, or the original data if
+            no migration is needed/available.
+        """
+        # Default: no migration available
+        return data
+
     def _load_locked(self) -> None:
         import json
 
@@ -79,16 +96,42 @@ class JsonStateStore[T: _VersionedState]:
             return
         try:
             data = json.loads(self._path.read_text())
-            # Validate version
-            if data.get("version") != self._version:
-                logger.warning(
-                    f"{self._log_prefix}.version_mismatch",
-                    path=str(self._path),
-                    version=data.get("version"),
-                    expected=self._version,
-                )
-                self._state = self._state_factory()
-                return
+            loaded_version = data.get("version")
+
+            # Try migration if version mismatch
+            if loaded_version != self._version:
+                if loaded_version is not None and loaded_version < self._version:
+                    migrated = self._migrate_state(data, loaded_version)
+                    if migrated.get("version") == self._version:
+                        logger.info(
+                            f"{self._log_prefix}.migrated",
+                            path=str(self._path),
+                            from_version=loaded_version,
+                            to_version=self._version,
+                        )
+                        data = migrated
+                        # Save the migrated state
+                        _atomic_write_json(self._path, data)
+                        self._mtime_ns = self._stat_mtime_ns()
+                    else:
+                        logger.warning(
+                            f"{self._log_prefix}.migration_failed",
+                            path=str(self._path),
+                            version=loaded_version,
+                            expected=self._version,
+                        )
+                        self._state = self._state_factory()
+                        return
+                else:
+                    logger.warning(
+                        f"{self._log_prefix}.version_mismatch",
+                        path=str(self._path),
+                        version=loaded_version,
+                        expected=self._version,
+                    )
+                    self._state = self._state_factory()
+                    return
+
             # Create state from dict
             self._state = self._state_type(**data)
         except Exception as exc:

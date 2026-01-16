@@ -40,6 +40,10 @@ from .transcription import _process_file_attachments, _transcribe_voice
 
 logger = get_logger(__name__)
 
+# Queue buffer sizes for message processing
+MESSAGE_QUEUE_SIZE = 100  # Max buffered messages before backpressure
+REACTION_QUEUE_SIZE = 100  # Max buffered reactions before backpressure
+
 
 async def _persist_new_rooms(room_ids: list[str], config_path: object) -> None:
     """Persist newly joined room IDs to the config file.
@@ -256,6 +260,13 @@ async def run_main_loop(
         if not await _startup_sequence(cfg):
             return
 
+        # Fetch display name once at startup (cached for mention detection)
+        own_display_name = await cfg.client.get_display_name()
+        if own_display_name:
+            logger.debug("matrix.display_name.resolved", display_name=own_display_name)
+        else:
+            logger.warning("matrix.display_name.not_available")
+
         allowlist = cfg.runtime.allowlist
         command_ids = {
             command_id.lower() for command_id in list_command_ids(allowlist=allowlist)
@@ -268,10 +279,10 @@ async def run_main_loop(
 
         message_send, message_recv = anyio.create_memory_object_stream[
             MatrixIncomingMessage
-        ](max_buffer_size=100)
+        ](max_buffer_size=MESSAGE_QUEUE_SIZE)
         reaction_send, reaction_recv = anyio.create_memory_object_stream[
             MatrixReaction
-        ](max_buffer_size=100)
+        ](max_buffer_size=REACTION_QUEUE_SIZE)
 
         async with anyio.create_task_group() as tg:
 
@@ -361,7 +372,7 @@ async def run_main_loop(
                     if not should_trigger_run(
                         text,
                         own_user_id=own_user_id,
-                        own_display_name=None,  # TODO: get display name from client
+                        own_display_name=own_display_name,
                         reply_to_is_bot=reply_to_is_bot,
                         runtime=cfg.runtime,
                         command_ids=command_ids,

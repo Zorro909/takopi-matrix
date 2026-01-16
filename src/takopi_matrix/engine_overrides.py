@@ -131,9 +131,11 @@ def resolve_override_value(
     )
 
 
-def allowed_reasoning_levels(engine: str) -> tuple[str, ...]:
-    """Get allowed reasoning levels for an engine."""
-    _ = engine
+def allowed_reasoning_levels() -> tuple[str, ...]:
+    """Get allowed reasoning levels.
+
+    Currently all engines use the same reasoning levels.
+    """
     return REASONING_LEVELS
 
 

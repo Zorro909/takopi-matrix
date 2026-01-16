@@ -11,6 +11,8 @@ from typing import TYPE_CHECKING, Literal
 
 from takopi.api import TransportRuntime
 
+from .bridge.commands import parse_slash_command
+
 if TYPE_CHECKING:
     from .room_prefs import RoomPrefsStore
 
@@ -86,7 +88,7 @@ def should_trigger_run(
         return True
 
     # Check for slash commands
-    command_id = _parse_command_id(text)
+    command_id, _ = parse_slash_command(text)
     if not command_id:
         return False
 
@@ -102,27 +104,3 @@ def should_trigger_run(
     # Project aliases
     project_aliases = {alias.lower() for alias in runtime.project_aliases()}
     return command_id in project_aliases
-
-
-def _parse_command_id(text: str) -> str | None:
-    """Extract command ID from a slash command.
-
-    Args:
-        text: The message text.
-
-    Returns:
-        The command ID (lowercase), or None if not a slash command.
-    """
-    stripped = text.lstrip()
-    if not stripped.startswith("/"):
-        return None
-    lines = stripped.splitlines()
-    if not lines:
-        return None
-    first_line = lines[0]
-    # Split on space to get the command token
-    token, _, _ = first_line.partition(" ")
-    command = token[1:]  # Remove leading /
-    if not command:
-        return None
-    return command.lower()

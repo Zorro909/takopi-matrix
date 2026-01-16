@@ -95,6 +95,38 @@ class RoomPrefsStore(JsonStateStore[_RoomPrefsState]):
             log_prefix="matrix.room_prefs",
         )
 
+    def _migrate_state(self, data: dict[str, Any], from_version: int) -> dict[str, Any]:
+        """Migrate room prefs from older versions.
+
+        v1 -> v2: Add trigger_mode and engine_overrides fields to each room.
+        """
+        if from_version == 1 and STATE_VERSION == 2:
+            # Migrate v1 -> v2
+            rooms = data.get("rooms", {})
+            migrated_rooms: dict[str, dict[str, Any]] = {}
+            for room_id, room_data in rooms.items():
+                if isinstance(room_data, dict):
+                    migrated_rooms[room_id] = {
+                        "default_engine": room_data.get("default_engine"),
+                        "trigger_mode": None,  # New field, default to 'all'
+                        "engine_overrides": {},  # New field, empty dict
+                    }
+                elif isinstance(room_data, str):
+                    # Old format: room_id -> engine_name directly
+                    migrated_rooms[room_id] = {
+                        "default_engine": room_data,
+                        "trigger_mode": None,
+                        "engine_overrides": {},
+                    }
+            logger.info(
+                "matrix.room_prefs.migration_v1_v2",
+                rooms_migrated=len(migrated_rooms),
+            )
+            return {"version": 2, "rooms": migrated_rooms}
+
+        # Unknown migration path
+        return data
+
     # --- Default Engine ---
 
     async def get_default_engine(self, room_id: str) -> str | None:
@@ -194,10 +226,30 @@ class RoomPrefsStore(JsonStateStore[_RoomPrefsState]):
             override_data = overrides_dict.get(engine_key)
             if override_data is None or not isinstance(override_data, dict):
                 return None
-            override = EngineOverrides(
-                model=override_data.get("model"),
-                reasoning=override_data.get("reasoning"),
-            )
+
+            # Type-safe extraction with validation
+            model = override_data.get("model")
+            reasoning = override_data.get("reasoning")
+
+            # Validate types - JSON could contain unexpected types
+            if model is not None and not isinstance(model, str):
+                logger.warning(
+                    "matrix.room_prefs.invalid_model_type",
+                    room_id=room_id,
+                    engine=engine_key,
+                    value_type=type(model).__name__,
+                )
+                model = None
+            if reasoning is not None and not isinstance(reasoning, str):
+                logger.warning(
+                    "matrix.room_prefs.invalid_reasoning_type",
+                    room_id=room_id,
+                    engine=engine_key,
+                    value_type=type(reasoning).__name__,
+                )
+                reasoning = None
+
+            override = EngineOverrides(model=model, reasoning=reasoning)
             return normalize_overrides(override)
 
     async def set_engine_override(
@@ -274,7 +326,15 @@ class RoomPrefsStore(JsonStateStore[_RoomPrefsState]):
         return entry
 
     def _room_is_empty(self, room: dict[str, Any]) -> bool:
-        """Check if a room dict has no meaningful preferences."""
+        """Check if a room has no meaningful preferences set.
+
+        A room is considered empty if all of the following are None/empty:
+        - default_engine
+        - trigger_mode
+        - engine_overrides
+
+        Empty rooms are candidates for removal to keep state file clean.
+        """
         if _normalize_text(room.get("default_engine")) is not None:
             return False
         if _normalize_trigger_mode(room.get("trigger_mode")) is not None:
