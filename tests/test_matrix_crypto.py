@@ -186,3 +186,367 @@ class TestCryptoManager:
             result = await manager.trust_device(client, "@user:ex.org", "DEVICE")
 
             assert result is False
+
+    @pytest.mark.anyio
+    async def test_start_verification_not_nio_client(self) -> None:
+        """start_verification returns None for non-nio.AsyncClient."""
+        manager = CryptoManager()
+        client = "not-a-nio-client"
+
+        result = await manager.start_verification(client, "DEVICE", "@user:ex.org")
+
+        assert result is None
+
+    @pytest.mark.anyio
+    async def test_confirm_verification_not_nio_client(self) -> None:
+        """confirm_verification returns False for non-nio.AsyncClient."""
+        manager = CryptoManager()
+        client = "not-a-nio-client"
+
+        result = await manager.confirm_verification(client, "txn123")
+
+        assert result is False
+
+    @pytest.mark.anyio
+    async def test_cancel_verification_not_nio_client(self) -> None:
+        """cancel_verification returns False for non-nio.AsyncClient."""
+        manager = CryptoManager()
+        client = "not-a-nio-client"
+
+        result = await manager.cancel_verification(client, "txn123")
+
+        assert result is False
+
+    def test_get_verification_emojis_not_nio_client(self) -> None:
+        """get_verification_emojis returns None for non-nio.AsyncClient."""
+        manager = CryptoManager()
+        client = "not-a-nio-client"
+
+        result = manager.get_verification_emojis(client, "txn123")
+
+        assert result is None
+
+    @pytest.mark.anyio
+    async def test_trust_device_not_nio_client(self) -> None:
+        """trust_device returns False for non-nio.AsyncClient."""
+        manager = CryptoManager()
+        client = "not-a-nio-client"
+
+        result = await manager.trust_device(client, "@user:ex.org", "DEVICE")
+
+        assert result is False
+
+    def test_is_room_encrypted_room_not_found(self) -> None:
+        """is_room_encrypted returns False when room not found."""
+        import nio
+
+        manager = CryptoManager()
+        client = MagicMock(spec=nio.AsyncClient)
+        client.rooms = {}
+
+        result = manager.is_room_encrypted(client, "!room:example.org")
+
+        assert result is False
+
+    def test_is_room_encrypted_room_found_not_encrypted(self) -> None:
+        """is_room_encrypted returns False when room is not encrypted."""
+        import nio
+
+        manager = CryptoManager()
+        client = MagicMock(spec=nio.AsyncClient)
+        room = MagicMock()
+        room.encrypted = False
+        client.rooms = {"!room:example.org": room}
+
+        result = manager.is_room_encrypted(client, "!room:example.org")
+
+        assert result is False
+
+    def test_is_room_encrypted_room_found_encrypted(self) -> None:
+        """is_room_encrypted returns True when room is encrypted."""
+        import nio
+
+        manager = CryptoManager()
+        client = MagicMock(spec=nio.AsyncClient)
+        room = MagicMock()
+        room.encrypted = True
+        client.rooms = {"!room:example.org": room}
+
+        result = manager.is_room_encrypted(client, "!room:example.org")
+
+        assert result is True
+
+    def test_is_room_encrypted_exception(self) -> None:
+        """is_room_encrypted returns False on exception."""
+        import nio
+
+        manager = CryptoManager()
+        client = MagicMock(spec=nio.AsyncClient)
+        client.rooms = MagicMock()
+        client.rooms.get.side_effect = RuntimeError("boom")
+
+        result = manager.is_room_encrypted(client, "!room:example.org")
+
+        assert result is False
+
+    @pytest.mark.anyio
+    async def test_init_crypto_olm_not_initialized(self) -> None:
+        """init_crypto returns False when olm is None."""
+        import nio
+
+        manager = CryptoManager()
+        client = MagicMock(spec=nio.AsyncClient)
+        client.olm = None
+
+        result = await manager.init_crypto(client)
+
+        assert result is False
+        assert manager._initialized is False
+
+    @pytest.mark.anyio
+    async def test_init_crypto_success(self) -> None:
+        """init_crypto returns True when olm is initialized."""
+        import nio
+
+        manager = CryptoManager()
+        client = MagicMock(spec=nio.AsyncClient)
+        client.olm = MagicMock()  # Not None
+        client.device_id = "DEVICE123"
+        client.user_id = "@user:example.org"
+
+        result = await manager.init_crypto(client)
+
+        assert result is True
+        assert manager._initialized is True
+
+    @pytest.mark.anyio
+    async def test_init_crypto_exception(self) -> None:
+        """init_crypto returns False on exception."""
+        import nio
+
+        manager = CryptoManager()
+        client = MagicMock(spec=nio.AsyncClient)
+        # Make accessing olm raise an exception
+        type(client).olm = property(lambda self: (_ for _ in ()).throw(RuntimeError("boom")))
+
+        result = await manager.init_crypto(client)
+
+        assert result is False
+
+    @pytest.mark.anyio
+    async def test_start_verification_success(self) -> None:
+        """start_verification returns transaction_id on success."""
+        import nio
+
+        manager = CryptoManager()
+        client = MagicMock(spec=nio.AsyncClient)
+        response = MagicMock()
+        response.transaction_id = "txn-456"
+        client.start_key_verification.return_value = response
+
+        result = await manager.start_verification(client, "DEVICE", "@user:ex.org")
+
+        assert result == "txn-456"
+        client.start_key_verification.assert_called_once_with("DEVICE", "@user:ex.org")
+
+    @pytest.mark.anyio
+    async def test_start_verification_error_response(self) -> None:
+        """start_verification returns None on ToDeviceError."""
+        import nio
+
+        manager = CryptoManager()
+        client = MagicMock(spec=nio.AsyncClient)
+        error_response = MagicMock(spec=nio.ToDeviceError)
+        error_response.message = "Failed"
+        client.start_key_verification.return_value = error_response
+
+        result = await manager.start_verification(client, "DEVICE", "@user:ex.org")
+
+        assert result is None
+
+    @pytest.mark.anyio
+    async def test_start_verification_exception(self) -> None:
+        """start_verification returns None on exception."""
+        import nio
+
+        manager = CryptoManager()
+        client = MagicMock(spec=nio.AsyncClient)
+        client.start_key_verification.side_effect = RuntimeError("boom")
+
+        result = await manager.start_verification(client, "DEVICE", "@user:ex.org")
+
+        assert result is None
+
+    @pytest.mark.anyio
+    async def test_confirm_verification_success(self) -> None:
+        """confirm_verification returns True on success."""
+        import nio
+
+        manager = CryptoManager()
+        client = MagicMock(spec=nio.AsyncClient)
+        response = MagicMock()  # Not ToDeviceError
+        client.confirm_short_auth_string.return_value = response
+
+        result = await manager.confirm_verification(client, "txn123")
+
+        assert result is True
+        client.confirm_short_auth_string.assert_called_once_with("txn123")
+
+    @pytest.mark.anyio
+    async def test_confirm_verification_error_response(self) -> None:
+        """confirm_verification returns False on ToDeviceError."""
+        import nio
+
+        manager = CryptoManager()
+        client = MagicMock(spec=nio.AsyncClient)
+        error_response = MagicMock(spec=nio.ToDeviceError)
+        error_response.message = "Failed"
+        client.confirm_short_auth_string.return_value = error_response
+
+        result = await manager.confirm_verification(client, "txn123")
+
+        assert result is False
+
+    @pytest.mark.anyio
+    async def test_confirm_verification_exception(self) -> None:
+        """confirm_verification returns False on exception."""
+        import nio
+
+        manager = CryptoManager()
+        client = MagicMock(spec=nio.AsyncClient)
+        client.confirm_short_auth_string.side_effect = RuntimeError("boom")
+
+        result = await manager.confirm_verification(client, "txn123")
+
+        assert result is False
+
+    @pytest.mark.anyio
+    async def test_cancel_verification_success(self) -> None:
+        """cancel_verification returns True on success."""
+        import nio
+
+        manager = CryptoManager()
+        client = MagicMock(spec=nio.AsyncClient)
+        response = MagicMock()  # Not ToDeviceError
+        client.cancel_key_verification.return_value = response
+
+        result = await manager.cancel_verification(client, "txn123")
+
+        assert result is True
+        client.cancel_key_verification.assert_called_once_with("txn123")
+
+    @pytest.mark.anyio
+    async def test_cancel_verification_error_response(self) -> None:
+        """cancel_verification returns False on ToDeviceError."""
+        import nio
+
+        manager = CryptoManager()
+        client = MagicMock(spec=nio.AsyncClient)
+        error_response = MagicMock(spec=nio.ToDeviceError)
+        error_response.message = "Failed"
+        client.cancel_key_verification.return_value = error_response
+
+        result = await manager.cancel_verification(client, "txn123")
+
+        assert result is False
+
+    @pytest.mark.anyio
+    async def test_cancel_verification_exception(self) -> None:
+        """cancel_verification returns False on exception."""
+        import nio
+
+        manager = CryptoManager()
+        client = MagicMock(spec=nio.AsyncClient)
+        client.cancel_key_verification.side_effect = RuntimeError("boom")
+
+        result = await manager.cancel_verification(client, "txn123")
+
+        assert result is False
+
+    def test_get_verification_emojis_no_sas(self) -> None:
+        """get_verification_emojis returns None when no active SAS."""
+        import nio
+
+        manager = CryptoManager()
+        client = MagicMock(spec=nio.AsyncClient)
+        client.get_active_sas.return_value = None
+
+        result = manager.get_verification_emojis(client, "txn123")
+
+        assert result is None
+
+    def test_get_verification_emojis_no_emoji(self) -> None:
+        """get_verification_emojis returns None when no emojis."""
+        import nio
+
+        manager = CryptoManager()
+        client = MagicMock(spec=nio.AsyncClient)
+        sas = MagicMock()
+        sas.get_emoji.return_value = []
+        client.get_active_sas.return_value = sas
+
+        result = manager.get_verification_emojis(client, "txn123")
+
+        assert result is None
+
+    def test_get_verification_emojis_success(self) -> None:
+        """get_verification_emojis returns emoji list on success."""
+        import nio
+
+        manager = CryptoManager()
+        client = MagicMock(spec=nio.AsyncClient)
+        sas = MagicMock()
+        emoji1 = MagicMock()
+        emoji1.emoji = "🐱"
+        emoji1.description = "Cat"
+        emoji2 = MagicMock()
+        emoji2.emoji = "🐶"
+        emoji2.description = "Dog"
+        sas.get_emoji.return_value = [emoji1, emoji2]
+        client.get_active_sas.return_value = sas
+
+        result = manager.get_verification_emojis(client, "txn123")
+
+        assert result == [("🐱", "Cat"), ("🐶", "Dog")]
+
+    def test_get_verification_emojis_exception(self) -> None:
+        """get_verification_emojis returns None on exception."""
+        import nio
+
+        manager = CryptoManager()
+        client = MagicMock(spec=nio.AsyncClient)
+        client.get_active_sas.side_effect = RuntimeError("boom")
+
+        result = manager.get_verification_emojis(client, "txn123")
+
+        assert result is None
+
+    @pytest.mark.anyio
+    async def test_trust_device_success(self) -> None:
+        """trust_device returns True on success."""
+        import nio
+
+        manager = CryptoManager()
+        client = MagicMock(spec=nio.AsyncClient)
+        client.verify_device = MagicMock()
+
+        # Patch OlmDevice since it might be in nio.crypto
+        with patch("nio.OlmDevice", create=True) as mock_olm_device:
+            mock_olm_device.return_value = MagicMock()
+            result = await manager.trust_device(client, "@user:ex.org", "DEVICE")
+
+        assert result is True
+        client.verify_device.assert_called_once()
+
+    @pytest.mark.anyio
+    async def test_trust_device_exception(self) -> None:
+        """trust_device returns False on exception."""
+        import nio
+
+        manager = CryptoManager()
+        client = MagicMock(spec=nio.AsyncClient)
+        client.verify_device.side_effect = RuntimeError("boom")
+
+        result = await manager.trust_device(client, "@user:ex.org", "DEVICE")
+
+        assert result is False

@@ -157,6 +157,47 @@ takopi-matrix verify-device \
   --no-send-encrypted
 ```
 
+### Auto-Join Invites
+
+When `user_allowlist` is configured, the bot will automatically accept room invites from listed users:
+
+```toml
+user_allowlist = ["@admin:example.org", "@trusted:example.org"]
+```
+
+Invites from unlisted users are ignored.
+
+### Trigger Mode (v0.2+)
+
+Control when the bot responds to messages in a room:
+
+- **all** (default): Bot responds to every message
+- **mentions**: Bot only responds when mentioned by display name or user ID
+
+The trigger mode is configured per-room via slash command (when available) or programmatically via `RoomPrefsStore`.
+
+When in mentions mode, the bot also responds to:
+- Direct replies to the bot's messages
+- Replies to in-progress task messages
+
+### Engine Overrides (v0.2+)
+
+Override model and reasoning settings per-room:
+
+- **model**: Override which model the engine uses (e.g., `gpt-4-turbo`, `claude-3-opus`)
+- **reasoning**: Set reasoning level (`low`, `medium`, `high`)
+
+Overrides are resolved with priority: thread → room → default config.
+
+### Room Preferences
+
+Per-room settings are persisted to `~/.takopi/matrix_prefs.json`:
+- Default engine per room
+- Trigger mode
+- Engine overrides (model, reasoning)
+
+Settings survive bot restarts and support hot-reload (changes take effect without restart).
+
 ## Room ID Format
 
 Room IDs must be in the format `!roomid:server`. You can find your room ID in Element under Room Settings → Advanced.

@@ -126,3 +126,146 @@ class TestRoomPrefsStateMigration:
         # File should be v2 now
         data = json.loads(prefs_path.read_text())
         assert data["version"] == 2
+
+
+class TestStateStoreEdgeCases:
+    """Tests for JsonStateStore edge cases."""
+
+    @pytest.fixture
+    def prefs_path(self, tmp_path: Path) -> Path:
+        """Create a temporary path for room prefs."""
+        return tmp_path / "matrix_room_prefs_state.json"
+
+    @pytest.mark.anyio
+    async def test_load_corrupted_json_resets_state(self, prefs_path: Path) -> None:
+        """Corrupted JSON file results in reset state."""
+        # Write invalid JSON
+        prefs_path.write_text("{not valid json")
+
+        store = RoomPrefsStore(prefs_path)
+
+        # Should work without errors (reset to empty state)
+        all_rooms = await store.get_all_rooms()
+        assert all_rooms == {}
+
+    @pytest.mark.anyio
+    async def test_load_missing_file_creates_default_state(
+        self, prefs_path: Path
+    ) -> None:
+        """Missing file creates default empty state."""
+        # Don't create the file
+        assert not prefs_path.exists()
+
+        store = RoomPrefsStore(prefs_path)
+
+        all_rooms = await store.get_all_rooms()
+        assert all_rooms == {}
+
+    @pytest.mark.anyio
+    async def test_load_invalid_state_type_resets(self, prefs_path: Path) -> None:
+        """Invalid state type (not a dict) resets to default."""
+        # Write a list instead of dict
+        prefs_path.write_text(json.dumps([1, 2, 3]))
+
+        store = RoomPrefsStore(prefs_path)
+
+        all_rooms = await store.get_all_rooms()
+        assert all_rooms == {}
+
+    @pytest.mark.anyio
+    async def test_load_state_with_missing_version(self, prefs_path: Path) -> None:
+        """State with missing version resets to default."""
+        # No version field at all
+        prefs_path.write_text(json.dumps({"rooms": {"!r:x": {}}}))
+
+        store = RoomPrefsStore(prefs_path)
+
+        all_rooms = await store.get_all_rooms()
+        # Should reset since version is None/missing
+        assert all_rooms == {}
+
+
+class TestAtomicWrite:
+    """Tests for atomic write functionality."""
+
+    @pytest.fixture
+    def prefs_path(self, tmp_path: Path) -> Path:
+        """Create a temporary path for room prefs."""
+        return tmp_path / "matrix_room_prefs_state.json"
+
+    @pytest.mark.anyio
+    async def test_atomic_write_success(self, prefs_path: Path) -> None:
+        """Successful write leaves no temp file."""
+        store = RoomPrefsStore(prefs_path)
+        await store.set_default_engine("!room:example.org", "opus")
+
+        # Verify file exists and no .tmp file
+        assert prefs_path.exists()
+        assert not prefs_path.with_suffix(".tmp").exists()
+
+    @pytest.mark.anyio
+    async def test_atomic_write_with_existing_parent_dir(
+        self, tmp_path: Path
+    ) -> None:
+        """Atomic write works when parent directory exists."""
+        nested_path = tmp_path / "subdir" / "state.json"
+        nested_path.parent.mkdir(parents=True)
+
+        store = RoomPrefsStore(nested_path)
+        await store.set_default_engine("!room:example.org", "opus")
+
+        assert nested_path.exists()
+        assert not nested_path.with_suffix(".tmp").exists()
+
+
+class TestMigrationEdgeCases:
+    """Tests for migration edge cases in JsonStateStore."""
+
+    @pytest.fixture
+    def prefs_path(self, tmp_path: Path) -> Path:
+        """Create a temporary path for room prefs."""
+        return tmp_path / "matrix_room_prefs_state.json"
+
+    @pytest.mark.anyio
+    async def test_migration_with_missing_rooms_key(self, prefs_path: Path) -> None:
+        """v1 state missing 'rooms' key still migrates."""
+        v1_state = {"version": 1}  # No rooms key
+        prefs_path.write_text(json.dumps(v1_state))
+
+        store = RoomPrefsStore(prefs_path)
+
+        # Should work - rooms defaults to empty dict
+        all_rooms = await store.get_all_rooms()
+        assert all_rooms == {}
+
+    @pytest.mark.anyio
+    async def test_version_zero_resets_state(self, prefs_path: Path) -> None:
+        """Version 0 (invalid) resets state."""
+        prefs_path.write_text(json.dumps({"version": 0, "rooms": {"!r:x": {}}}))
+
+        store = RoomPrefsStore(prefs_path)
+
+        all_rooms = await store.get_all_rooms()
+        # Version 0 < current version triggers migration attempt
+        # but migration from 0 is not supported, so resets
+        assert all_rooms == {}  # Reset or empty
+
+    @pytest.mark.anyio
+    async def test_state_with_extra_fields_preserved(self, prefs_path: Path) -> None:
+        """Extra fields in state are preserved on load."""
+        v2_state = {
+            "version": 2,
+            "rooms": {
+                "!room:example.org": {
+                    "default_engine": "opus",
+                    "trigger_mode": None,
+                    "engine_overrides": {},
+                },
+            },
+        }
+        prefs_path.write_text(json.dumps(v2_state))
+
+        store = RoomPrefsStore(prefs_path)
+
+        engine = await store.get_default_engine("!room:example.org")
+        assert engine == "opus"

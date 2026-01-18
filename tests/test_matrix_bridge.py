@@ -146,6 +146,40 @@ def test_parse_slash_command_leading_whitespace() -> None:
     assert args == "arg"
 
 
+# --- split_command_args tests ---
+
+
+def test_split_command_args_basic() -> None:
+    """Basic argument splitting."""
+    from takopi_matrix.bridge.commands.parse import split_command_args
+
+    assert split_command_args("one two three") == ("one", "two", "three")
+
+
+def test_split_command_args_empty() -> None:
+    """Empty string returns empty tuple."""
+    from takopi_matrix.bridge.commands.parse import split_command_args
+
+    assert split_command_args("") == ()
+    assert split_command_args("   ") == ()
+
+
+def test_split_command_args_quoted() -> None:
+    """Quoted arguments are preserved."""
+    from takopi_matrix.bridge.commands.parse import split_command_args
+
+    assert split_command_args('one "two three" four') == ("one", "two three", "four")
+
+
+def test_split_command_args_unclosed_quote() -> None:
+    """Unclosed quote falls back to simple split."""
+    from takopi_matrix.bridge.commands.parse import split_command_args
+
+    # Unclosed quote triggers ValueError in shlex.split, falls back to str.split
+    result = split_command_args('one "two three')
+    assert result == ("one", '"two', "three")
+
+
 # --- Presenter ---
 
 

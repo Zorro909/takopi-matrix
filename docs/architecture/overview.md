@@ -61,11 +61,14 @@ src/takopi_matrix/
 +-- __init__.py              # Package exports
 +-- types.py                 # Data classes (MatrixIncomingMessage, etc.)
 +-- render.py                # Markdown rendering for Matrix
-+-- state_store.py           # JSON state persistence
-+-- room_prefs.py            # Per-room preferences
++-- markdown.py              # Markdown HTML conversion
++-- state_store.py           # JSON state persistence (versioned, hot-reload)
++-- room_prefs.py            # Per-room preferences (engine, trigger mode)
 +-- room_projects.py         # Room-project mapping
 +-- files.py                 # File download utilities
 +-- engine_defaults.py       # Engine resolution logic
++-- engine_overrides.py      # Model/reasoning overrides per room
++-- trigger_mode.py          # Trigger mode logic (all/mentions)
 +-- backend.py               # Transport registration
 +-- crypto.py                # E2EE management
 |
@@ -77,11 +80,29 @@ src/takopi_matrix/
 |   +-- content_builders.py  # Message content formatters
 |   +-- client.py            # MatrixClient class
 |
-+-- bridge/                  # Bridge package (TODO)
-|   +-- ...
++-- bridge/                  # Bridge package
+|   +-- __init__.py          # Re-exports
+|   +-- config.py            # MatrixBridgeConfig dataclass
+|   +-- runtime.py           # Main sync loop, message processing
+|   +-- events.py            # Event processing pipeline
+|   +-- transport.py         # MatrixTransport (takopi interface)
+|   +-- presenter.py         # MatrixPresenter (UI state)
+|   +-- cancel.py            # Cancel command/reaction handling
+|   +-- transcription.py     # Voice message transcription
+|   +-- commands/            # Command dispatch system
+|       +-- __init__.py      # Public exports
+|       +-- parse.py         # Parsing utilities
+|       +-- dispatch.py      # Command routing
+|       +-- executor.py      # MatrixCommandExecutor
 |
-+-- onboarding/              # Onboarding package (TODO)
-    +-- ...
++-- onboarding/              # Onboarding package
+    +-- __init__.py          # Re-exports
+    +-- wizard.py            # Interactive setup wizard
+    +-- ui.py                # Terminal UI helpers
+    +-- discovery.py         # Homeserver discovery
+    +-- validation.py        # Credential validation
+    +-- rooms.py             # Room selection
+    +-- config_gen.py        # Config file generation
 ```
 
 ## Data Flow
