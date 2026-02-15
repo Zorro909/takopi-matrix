@@ -35,6 +35,9 @@ Issues = "https://github.com/Zorro909/takopi-matrix/issues"
 [project.entry-points."takopi.transport_backends"]
 matrix = "takopi_matrix.backend:BACKEND"
 
+[project.scripts]
+takopi-matrix = "takopi_matrix.cli:main"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

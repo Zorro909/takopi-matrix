@@ -126,6 +126,26 @@ E2EE is enabled by default (requires libolm):
 - Encrypted rooms are automatically detected and handled
 - Device verification via SAS/emoji is supported
 
+#### Verify The Takopi Device (SAS/Emoji)
+
+If your rooms use “only share keys to verified devices”, you must verify the Takopi
+session once so other clients will share Megolm keys to it.
+
+Run the verifier on the host/container where Takopi runs (stop Takopi first):
+
+```sh
+takopi-matrix verify-device --config ~/.takopi/takopi.toml --allow @you:example.org
+```
+
+Then in your Matrix client (Element/FluffyChat), verify the Takopi session and
+confirm the SAS emojis/decimals shown by the verifier.
+
+Initiator mode is available but less reliable across clients:
+
+```sh
+takopi-matrix verify-device --initiate-to @you:example.org
+```
+
 ## Room ID Format
 
 Room IDs must be in the format `!roomid:server`. You can find your room ID in Element under Room Settings → Advanced.
