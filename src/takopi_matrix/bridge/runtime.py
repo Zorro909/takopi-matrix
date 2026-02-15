@@ -220,7 +220,12 @@ async def _startup_sequence(cfg: MatrixBridgeConfig) -> bool:
 
     # Initial sync to populate room list before sending messages
     logger.debug("matrix.startup.initial_sync")
-    await cfg.client.sync(timeout_ms=10000)
+    # If we have a persisted sync token, a normal incremental sync does not
+    # include full room state. On a fresh process, that means `client.rooms`
+    # and membership/device targeting can be incomplete, which makes E2EE key
+    # sharing flaky after restarts. Use full_state once on startup when E2EE is
+    # available to rebuild state deterministically.
+    await cfg.client.sync(timeout_ms=10000, full_state=cfg.client.e2ee_available)
 
     # Trust devices and establish encryption sessions (after sync so rooms are known)
     await _trust_room_devices_if_e2ee(cfg)
