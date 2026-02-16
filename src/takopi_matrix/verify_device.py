@@ -580,6 +580,7 @@ async def _run_verifier(
     verified_txns: set[str] = set()
     verified_device_ids: set[str] = set()
     pending_share_key: set[str] = set()
+    seen_start_txns: set[str] = set()
     requested_txns: dict[str, str] = {}
     device_by_id: dict[str, OlmDevice] = {}
     expected_target_device_ids: set[str] = set()
@@ -916,6 +917,12 @@ async def _run_verifier(
             return
 
         if isinstance(event, KeyVerificationStart):
+            if txn in seen_start_txns:
+                if debug_events:
+                    print(f"[debug] start txn={txn}: already handled; ignoring duplicate", flush=True)
+                return
+            seen_start_txns.add(txn)
+
             methods = getattr(event, "short_authentication_string", []) or []
             if "emoji" not in methods and "decimal" not in methods:
                 print(f"[verifier] start txn={txn}: unsupported SAS methods: {methods}", flush=True)
@@ -1010,23 +1017,6 @@ async def _run_verifier(
                     print("[verifier] decimals:", sas.get_decimals(), flush=True)
                 except Exception:
                     pass
-
-            # Auto-confirm early to avoid client deadlocks/timeouts where both
-            # sides wait for the other to send MAC first.
-            if auto_confirm and txn not in sent_mac_txns:
-                try:
-                    msg = client.confirm_key_verification(txn)
-                    await _send_verif_txn(
-                        txn,
-                        sas.other_olm_device,
-                        msg.type,
-                        msg.content,
-                        debug_events=debug_events,
-                    )
-                    sent_mac_txns.add(txn)
-                    print(f"[verifier] key txn={txn}: auto-confirmed; sent mac", flush=True)
-                except Exception as exc:
-                    print(f"[verifier] key txn={txn}: auto-confirm failed: {exc!r}", flush=True)
 
             print(f"[verifier] key txn={txn}: waiting for partner mac", flush=True)
             return
