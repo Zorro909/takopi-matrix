@@ -440,9 +440,15 @@ class MatrixClient:
 
                 device_store = getattr(client, "device_store", None)
                 olm = getattr(client, "olm", None)
-                session_store = getattr(olm, "session_store", None) if olm is not None else None
+                session_store = (
+                    getattr(olm, "session_store", None) if olm is not None else None
+                )
 
-                if room_user_ids and device_store is not None and session_store is not None:
+                if (
+                    room_user_ids
+                    and device_store is not None
+                    and session_store is not None
+                ):
                     missing: dict[str, list[str]] = {}
                     for user_id, devices in device_store.items():
                         if user_id not in room_user_ids:
