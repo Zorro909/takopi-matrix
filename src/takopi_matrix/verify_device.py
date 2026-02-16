@@ -586,6 +586,37 @@ async def _run_verifier(
     sent_mac_txns: set[str] = set()
     seen_mac_txns: set[str] = set()
     seen_accept_txns: set[str] = set()
+    sent_key_txns: set[str] = set()
+    encrypted_txns: set[str] = set()
+
+    def _mark_txn_encrypted(txn: str, event: Any) -> None:
+        if getattr(event, "_takopi_from_olm", False):
+            encrypted_txns.add(str(txn))
+
+    async def _send_verif_txn(
+        txn: str,
+        target: OlmDevice,
+        inner_type: str,
+        inner_content: dict[str, Any],
+        *,
+        debug_events: bool,
+    ) -> None:
+        # Once we see any verification event via Olm (m.room.encrypted wrapper),
+        # prefer encrypted-only replies for that transaction to avoid some clients
+        # cancelling due to duplicate plaintext+encrypted messages.
+        sp = bool(send_plaintext)
+        se = bool(send_encrypted)
+        if str(txn) in encrypted_txns and se:
+            sp = False
+        await _send_verif(
+            client,
+            target,
+            inner_type,
+            inner_content,
+            send_plaintext=sp,
+            send_encrypted=se,
+            debug_events=debug_events,
+        )
 
     def _remember_device(dev: OlmDevice) -> None:
         device_by_id[str(dev.id)] = dev
@@ -746,6 +777,7 @@ async def _run_verifier(
                             flush=True,
                         )
                     return
+                _mark_txn_encrypted(str(req_txn), event)
 
                 if initiate_to:
                     # We're initiating; ask the operator to accept the incoming
@@ -770,13 +802,11 @@ async def _run_verifier(
                     )
                     return
 
-                await _send_verif(
-                    client,
+                await _send_verif_txn(
+                    str(req_txn),
                     target,
                     "m.key.verification.ready",
                     ready,
-                    send_plaintext=send_plaintext,
-                    send_encrypted=send_encrypted,
                     debug_events=debug_events,
                 )
                 print(f"[verifier] request from {sender} txn={req_txn}: sent ready", flush=True)
@@ -792,6 +822,7 @@ async def _run_verifier(
                             flush=True,
                         )
                     return
+                _mark_txn_encrypted(str(ready_txn), event)
 
                 if initiate_to and sender == initiate_to and str(ready_txn) in requested_txns:
                     target_dev_id = requested_txns.get(str(ready_txn)) or ""
@@ -818,13 +849,11 @@ async def _run_verifier(
                     client.olm.key_verifications[str(ready_txn)] = sas
                     start_msg = sas.start_verification()
 
-                    await _send_verif(
-                        client,
+                    await _send_verif_txn(
+                        str(ready_txn),
                         target,
                         "m.key.verification.start",
                         start_msg.content,
-                        send_plaintext=send_plaintext,
-                        send_encrypted=send_encrypted,
                         debug_events=debug_events,
                     )
 
@@ -839,6 +868,7 @@ async def _run_verifier(
         if not txn:
             return
         txn = str(txn)
+        _mark_txn_encrypted(txn, event)
 
         if isinstance(event, KeyVerificationAccept):
             print(f"[verifier] accept from {sender} txn={txn}", flush=True)
@@ -855,20 +885,23 @@ async def _run_verifier(
                                 f"[debug] handle_key_verification(accept) failed txn={txn}: {exc!r}",
                                 flush=True,
                             )
+                if txn in sent_key_txns:
+                    if debug_events:
+                        print(f"[debug] accept txn={txn}: key already sent; ignoring", flush=True)
+                    return
                 try:
                     key_msg = sas.share_key()
                 except Exception as exc:
                     print(f"[verifier] accept txn={txn}: share_key failed: {exc!r}", flush=True)
                     return
-                await _send_verif(
-                    client,
+                await _send_verif_txn(
+                    txn,
                     sas.other_olm_device,
                     key_msg.type,
                     key_msg.content,
-                    send_plaintext=send_plaintext,
-                    send_encrypted=send_encrypted,
                     debug_events=debug_events,
                 )
+                sent_key_txns.add(txn)
                 print(f"[verifier] accept txn={txn}: sent key", flush=True)
             return
 
@@ -910,13 +943,11 @@ async def _run_verifier(
             except Exception as exc:
                 print(f"[verifier] start txn={txn}: accept build failed: {exc!r}", flush=True)
                 return
-            await _send_verif(
-                client,
+            await _send_verif_txn(
+                txn,
                 other,
                 accept_msg.type,
                 accept_msg.content,
-                send_plaintext=send_plaintext,
-                send_encrypted=send_encrypted,
                 debug_events=debug_events,
             )
             print(f"[verifier] start txn={txn}: sent accept", flush=True)
@@ -946,13 +977,11 @@ async def _run_verifier(
                 except Exception as exc:
                     print(f"[verifier] key txn={txn}: share_key failed: {exc!r}", flush=True)
                     return
-                await _send_verif(
-                    client,
+                await _send_verif_txn(
+                    txn,
                     sas.other_olm_device,
                     key_msg.type,
                     key_msg.content,
-                    send_plaintext=send_plaintext,
-                    send_encrypted=send_encrypted,
                     debug_events=debug_events,
                 )
                 print(f"[verifier] key txn={txn}: sent key", flush=True)
@@ -1000,13 +1029,11 @@ async def _run_verifier(
                 if auto_confirm:
                     try:
                         msg = client.confirm_key_verification(txn)
-                        await _send_verif(
-                            client,
+                        await _send_verif_txn(
+                            txn,
                             sas.other_olm_device,
                             msg.type,
                             msg.content,
-                            send_plaintext=send_plaintext,
-                            send_encrypted=send_encrypted,
                             debug_events=debug_events,
                         )
                         sent_mac_txns.add(txn)
