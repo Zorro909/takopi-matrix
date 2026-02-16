@@ -759,10 +759,14 @@ async def _run_verifier(
                 f"[debug] event type={etype} sender={sender} txn={txn_dbg} class={event.__class__.__name__} olm={from_olm}",
                 flush=True,
             )
-            if etype in ("m.key.verification.request", "m.key.verification.ready") and not txn_dbg:
-                # Avoid dumping full payload; just print the fields we need.
-                keys = sorted(content.keys())
-                print(f"[debug] {etype} content keys={keys} content={content!r}", flush=True)
+            if etype in ("m.key.verification.request", "m.key.verification.ready"):
+                fd = content.get("from_device")
+                meth = content.get("methods", content.get("method"))
+                keys = sorted([k for k in content.keys() if isinstance(k, str)])
+                print(
+                    f"[debug] {etype} from_device={fd} methods={meth!r} keys={keys}",
+                    flush=True,
+                )
 
         # Request/ready arrive as UnknownToDeviceEvent for many clients.
         if isinstance(event, (UnknownToDeviceEvent, KeyVerificationEvent)):
@@ -802,11 +806,17 @@ async def _run_verifier(
                     )
                     return
 
-                await _send_verif_txn(
-                    str(req_txn),
+                # Some clients send request/ready wrapped in Olm but still only
+                # reliably accept plaintext ready. For ready specifically, do
+                # not force "encrypted-only" even if we saw an Olm wrapper; send
+                # both when enabled.
+                await _send_verif(
+                    client,
                     target,
                     "m.key.verification.ready",
                     ready,
+                    send_plaintext=send_plaintext,
+                    send_encrypted=send_encrypted,
                     debug_events=debug_events,
                 )
                 print(f"[verifier] request from {sender} txn={req_txn}: sent ready", flush=True)
@@ -1001,7 +1011,23 @@ async def _run_verifier(
                 except Exception:
                     pass
 
-            # Wait for partner MAC, then respond in MAC handler.
+            # Auto-confirm early to avoid client deadlocks/timeouts where both
+            # sides wait for the other to send MAC first.
+            if auto_confirm and txn not in sent_mac_txns:
+                try:
+                    msg = client.confirm_key_verification(txn)
+                    await _send_verif_txn(
+                        txn,
+                        sas.other_olm_device,
+                        msg.type,
+                        msg.content,
+                        debug_events=debug_events,
+                    )
+                    sent_mac_txns.add(txn)
+                    print(f"[verifier] key txn={txn}: auto-confirmed; sent mac", flush=True)
+                except Exception as exc:
+                    print(f"[verifier] key txn={txn}: auto-confirm failed: {exc!r}", flush=True)
+
             print(f"[verifier] key txn={txn}: waiting for partner mac", flush=True)
             return
 
@@ -1078,12 +1104,22 @@ async def _run_verifier(
                 print(f"[verifier] cancelled txn={txn}: {code} {reason}", flush=True)
             else:
                 print(f"[verifier] cancelled txn={txn}: {reason}", flush=True)
-            if txn in pending_txns:
-                pending_txns.discard(txn)
-                if not verify_all:
-                    done.set()
-                elif expected_target_device_ids and expected_target_device_ids.issubset(verified_device_ids):
-                    done.set()
+            pending_txns.discard(txn)
+            pending_share_key.discard(txn)
+            try:
+                client.key_verifications.pop(txn, None)
+            except Exception:
+                pass
+            try:
+                if getattr(client, "olm", None) is not None:
+                    client.olm.key_verifications.pop(txn, None)
+            except Exception:
+                pass
+
+            # Don't exit on cancel; keep running so the operator can retry
+            # immediately without restarting the helper.
+            if verify_all and expected_target_device_ids and expected_target_device_ids.issubset(verified_device_ids):
+                done.set()
             return
 
     client.add_to_device_callback(
