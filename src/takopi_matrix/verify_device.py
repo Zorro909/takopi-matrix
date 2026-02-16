@@ -255,26 +255,96 @@ def _patch_olm_for_verification(
     orig_handle_olm = getattr(olm, "_handle_olm_event", None)
     if callable(orig_handle_olm) and not getattr(olm, "_takopi_verif_patch", False):
 
+        def _verif_content(payload: dict[str, Any]) -> dict[str, Any]:
+            """
+            Some clients encrypt verification events in a non-standard shape.
+
+            Expected (spec-ish): {"type": ..., "content": {...}}
+            Observed: {"type": ..., "transaction_id": ..., "from_device": ...}
+
+            Normalize to a dict that behaves like the to-device event content.
+            """
+
+            raw = payload.get("content")
+            if isinstance(raw, dict):
+                out = dict(raw)
+                # If the content is empty/missing fields, try top-level fallbacks.
+                for k in (
+                    "transaction_id",
+                    "from_device",
+                    "methods",
+                    "method",
+                    "timestamp",
+                ):
+                    if k in payload and k not in out:
+                        out[k] = payload[k]
+                return out
+
+            out: dict[str, Any] = {}
+            for k, v in payload.items():
+                if k in (
+                    "type",
+                    "content",
+                    "sender",
+                    "recipient",
+                    "sender_key",
+                    "recipient_keys",
+                    "keys",
+                ):
+                    continue
+                out[k] = v
+            return out
+
         def _patched_handle_olm(sender: str, sender_key: str, payload: dict[str, Any]):  # type: ignore[no-untyped-def]
             t = payload.get("type")
             if isinstance(t, str) and t.startswith("m.key.verification."):
                 event_dict = {
                     "sender": sender,
                     "type": t,
-                    "content": payload.get("content", {}) or {},
+                    "content": _verif_content(payload),
                 }
                 try:
                     if t == "m.key.verification.start":
-                        return KeyVerificationStart.from_dict(event_dict)
+                        evt = KeyVerificationStart.from_dict(event_dict)
+                        try:
+                            setattr(evt, "_takopi_from_olm", True)
+                        except Exception:
+                            pass
+                        return evt
                     if t == "m.key.verification.accept":
-                        return KeyVerificationAccept.from_dict(event_dict)
+                        evt = KeyVerificationAccept.from_dict(event_dict)
+                        try:
+                            setattr(evt, "_takopi_from_olm", True)
+                        except Exception:
+                            pass
+                        return evt
                     if t == "m.key.verification.key":
-                        return KeyVerificationKey.from_dict(event_dict)
+                        evt = KeyVerificationKey.from_dict(event_dict)
+                        try:
+                            setattr(evt, "_takopi_from_olm", True)
+                        except Exception:
+                            pass
+                        return evt
                     if t == "m.key.verification.mac":
-                        return KeyVerificationMac.from_dict(event_dict)
+                        evt = KeyVerificationMac.from_dict(event_dict)
+                        try:
+                            setattr(evt, "_takopi_from_olm", True)
+                        except Exception:
+                            pass
+                        return evt
                     if t == "m.key.verification.cancel":
-                        return KeyVerificationCancel.from_dict(event_dict)
-                    return UnknownToDeviceEvent.from_dict(event_dict)
+                        evt = KeyVerificationCancel.from_dict(event_dict)
+                        try:
+                            setattr(evt, "_takopi_from_olm", True)
+                        except Exception:
+                            pass
+                        return evt
+                    evt = UnknownToDeviceEvent.from_dict(event_dict)
+                    try:
+                        setattr(evt, "_takopi_from_olm", True)
+                    except Exception:
+                        pass
+                    return evt
                 except Exception as exc:
                     if debug_events:
                         print(
@@ -282,7 +352,12 @@ def _patch_olm_for_verification(
                             flush=True,
                         )
                     try:
-                        return UnknownToDeviceEvent.from_dict(event_dict)
+                        evt = UnknownToDeviceEvent.from_dict(event_dict)
+                        try:
+                            setattr(evt, "_takopi_from_olm", True)
+                        except Exception:
+                            pass
+                        return evt
                     except Exception:
                         return None
             return orig_handle_olm(sender, sender_key, payload)
@@ -642,7 +717,15 @@ async def _run_verifier(
 
         if debug_events and etype:
             txn_dbg = content.get("transaction_id") or getattr(event, "transaction_id", None)
-            print(f"[debug] event type={etype} sender={sender} txn={txn_dbg}", flush=True)
+            from_olm = bool(getattr(event, "_takopi_from_olm", False))
+            print(
+                f"[debug] event type={etype} sender={sender} txn={txn_dbg} class={event.__class__.__name__} olm={from_olm}",
+                flush=True,
+            )
+            if etype in ("m.key.verification.request", "m.key.verification.ready") and not txn_dbg:
+                # Avoid dumping full payload; just print the fields we need.
+                keys = sorted(content.keys())
+                print(f"[debug] {etype} content keys={keys} content={content!r}", flush=True)
 
         # Request/ready arrive as UnknownToDeviceEvent for many clients.
         if isinstance(event, (UnknownToDeviceEvent, KeyVerificationEvent)):
@@ -651,6 +734,11 @@ async def _run_verifier(
                 from_device = content.get("from_device")
                 methods = content.get("methods") or []
                 if not req_txn or not from_device:
+                    if debug_events:
+                        print(
+                            f"[debug] request missing txn/from_device content={content!r}",
+                            flush=True,
+                        )
                     return
 
                 if initiate_to:
@@ -692,6 +780,11 @@ async def _run_verifier(
                 ready_txn = content.get("transaction_id")
                 from_device = content.get("from_device")
                 if not ready_txn or not from_device:
+                    if debug_events:
+                        print(
+                            f"[debug] ready missing txn/from_device content={content!r}",
+                            flush=True,
+                        )
                     return
 
                 if initiate_to and sender == initiate_to and str(ready_txn) in requested_txns:
