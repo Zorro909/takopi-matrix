@@ -146,6 +146,17 @@ Initiator mode is available but less reliable across clients:
 takopi-matrix verify-device --initiate-to @you:example.org
 ```
 
+Useful initiator options for flaky client popups:
+
+```sh
+takopi-matrix verify-device \
+  --initiate-to @you:example.org \
+  --initiate-device-id YOURDEVICEID \
+  --initiate-retries 3 \
+  --initiate-retry-interval 10 \
+  --no-send-encrypted
+```
+
 ## Room ID Format
 
 Room IDs must be in the format `!roomid:server`. You can find your room ID in Element under Room Settings → Advanced.
