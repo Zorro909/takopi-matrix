@@ -53,7 +53,9 @@ def test_cli_defaults_broadcast_to_auto() -> None:
     assert ns.broadcast_request is None
 
 
-def test_resolve_creds_uses_whoami_device_id(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_resolve_creds_uses_whoami_device_id(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     cfg = tmp_path / "takopi.toml"
     cfg.write_text(
         """
@@ -71,7 +73,7 @@ crypto_store_path = "/tmp/matrix_crypto.db"
         assert token == "TOKEN"
         return {"user_id": "@bot:hs.example", "device_id": "DEV123"}
 
-    monkeypatch.setattr("takopi_matrix.verify_device._whoami", fake_whoami)
+    monkeypatch.setattr("takopi_matrix.verification.creds._whoami", fake_whoami)
     creds = _resolve_creds(cfg)
     assert creds.user_id == "@bot:hs.example"
     assert creds.device_id == "DEV123"
