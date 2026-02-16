@@ -711,7 +711,13 @@ async def _run_verifier(
             return
 
         etype = getattr(event, "type", "") or ""
-        content = getattr(event, "content", {}) or {}
+        if isinstance(event, UnknownToDeviceEvent):
+            # matrix-nio stores UnknownToDeviceEvent content under .source, not
+            # .content. (This is the common case for request/ready.)
+            src = getattr(event, "source", {}) or {}
+            content = src.get("content", {}) if isinstance(src, dict) else {}
+        else:
+            content = getattr(event, "content", {}) or {}
         if not isinstance(content, dict):
             content = {}
 
