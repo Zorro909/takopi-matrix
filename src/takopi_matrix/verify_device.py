@@ -553,6 +553,9 @@ async def _run_verifier(
     send_encrypted: bool,
     initiate_to: str,
     initiate_device_ids: set[str],
+    initiate_retries: int,
+    initiate_retry_interval_seconds: int,
+    broadcast_request: bool | None,
     verify_all: bool,
 ) -> int:
     if not allowed_senders:
@@ -601,6 +604,15 @@ async def _run_verifier(
         txn_channels.setdefault(txn, "plaintext")
         if debug_events and txn_channels.get(txn) == "plaintext":
             print(f"[debug] txn={txn}: channel=plaintext", flush=True)
+
+    def _is_active_txn(txn: str) -> bool:
+        return (
+            txn in requested_txns
+            or txn in pending_txns
+            or txn in verified_txns
+            or txn in sent_mac_txns
+            or txn in seen_mac_txns
+        )
 
     async def _send_verif_txn(
         txn: str,
@@ -658,7 +670,7 @@ async def _run_verifier(
         _remember_device(dev)
         return dev
 
-    async def _initiate() -> None:
+    async def _initiate_once(*, attempt: int) -> None:
         nonlocal expected_target_device_ids
 
         if not initiate_to:
@@ -687,8 +699,12 @@ async def _run_verifier(
                 continue
             _remember_device(dev)
 
-        # Broadcast request so at least one active client can surface a popup.
-        if not initiate_device_ids:
+        use_broadcast = broadcast_request
+        if use_broadcast is None:
+            use_broadcast = not initiate_device_ids
+        should_broadcast = bool(use_broadcast) and attempt == 1
+
+        if should_broadcast:
             try:
                 txn = _tx_id()
                 content = {
@@ -703,8 +719,13 @@ async def _run_verifier(
                 print(f"[verifier] sent broadcast request to {initiate_to} txn={txn}", flush=True)
             except Exception as exc:
                 print(f"[verifier] broadcast request error: {exc!r}", flush=True)
+        elif debug_events and bool(use_broadcast):
+            print(
+                f"[debug] initiate attempt={attempt}: broadcast disabled after first attempt",
+                flush=True,
+            )
 
-        # Request verification with every discovered device.
+        sent_count = 0
         for dev_id, dev in sorted(device_by_id.items()):
             if initiate_device_ids and str(dev_id) not in initiate_device_ids:
                 continue
@@ -725,16 +746,47 @@ async def _run_verifier(
                 debug_events=debug_events,
             )
             requested_txns[txn] = str(dev_id)
+            sent_count += 1
             label = f"{dev_id}"
             dn = getattr(dev, "display_name", "") or ""
             if dn:
                 label = f"{dev_id} ({dn})"
-            print(f"[verifier] sent request to {initiate_to} device {label} txn={txn}", flush=True)
+            print(
+                f"[verifier] sent request to {initiate_to} device {label} txn={txn} attempt={attempt}",
+                flush=True,
+            )
+
+        if debug_events:
+            print(
+                f"[debug] initiate attempt={attempt}: requested_devices={sent_count} retries={max(1, initiate_retries)} interval={max(0, initiate_retry_interval_seconds)}s",
+                flush=True,
+            )
 
         if verify_all and device_by_id:
             expected_target_device_ids.update(device_by_id.keys())
             print(
                 f"[verifier] expecting to verify {len(expected_target_device_ids)} device(s) for {initiate_to}",
+                flush=True,
+            )
+
+    async def _initiate_with_retries() -> None:
+        attempts = max(1, int(initiate_retries))
+        interval_seconds = max(0, int(initiate_retry_interval_seconds))
+
+        for attempt in range(1, attempts + 1):
+            if done.is_set():
+                break
+            await _initiate_once(attempt=attempt)
+            if done.is_set() or attempt >= attempts:
+                break
+            try:
+                await asyncio.wait_for(done.wait(), timeout=float(interval_seconds))
+            except TimeoutError:
+                pass
+
+        if debug_events and not done.is_set():
+            print(
+                f"[debug] initiate retries exhausted attempts={attempts}",
                 flush=True,
             )
 
@@ -783,6 +835,29 @@ async def _run_verifier(
                     f"[debug] {etype} from_device={fd} methods={meth!r} keys={keys}",
                     flush=True,
                 )
+
+        txn_from_payload = content.get("transaction_id")
+        if txn_from_payload is not None:
+            txn_from_payload = str(txn_from_payload)
+        stale_types = {
+            "m.key.verification.ready",
+            "m.key.verification.accept",
+            "m.key.verification.key",
+            "m.key.verification.mac",
+            "m.key.verification.cancel",
+            "m.key.verification.done",
+        }
+        if (
+            debug_events
+            and txn_from_payload
+            and etype in stale_types
+            and not _is_active_txn(txn_from_payload)
+        ):
+            known = sorted(requested_txns.keys())[-5:]
+            print(
+                f"[debug] stale verification event ignored type={etype} txn={txn_from_payload} known_recent_txns={known}",
+                flush=True,
+            )
 
         # Request/ready arrive as UnknownToDeviceEvent for many clients.
         if isinstance(event, (UnknownToDeviceEvent, KeyVerificationEvent)):
@@ -899,7 +974,7 @@ async def _run_verifier(
                     )
                 return
 
-        txn = getattr(event, "transaction_id", None)
+        txn = getattr(event, "transaction_id", None) or content.get("transaction_id")
         if not txn:
             return
         txn = str(txn)
@@ -1168,8 +1243,10 @@ async def _run_verifier(
 
     try:
         await _init_crypto(client, creds=creds, debug_events=debug_events)
-        await _initiate()
         sync_task = asyncio.create_task(client.sync_forever(timeout=30000, full_state=True))
+        initiate_task: asyncio.Task[None] | None = None
+        if initiate_to:
+            initiate_task = asyncio.create_task(_initiate_with_retries())
 
         try:
             if max_wait_seconds > 0:
@@ -1184,6 +1261,8 @@ async def _run_verifier(
             )
             return 2
         finally:
+            if initiate_task is not None:
+                initiate_task.cancel()
             sync_task.cancel()
             await client.close()
 
@@ -1237,6 +1316,9 @@ def run_verify_device(
     send_encrypted: bool,
     initiate_to: str,
     initiate_device_ids: set[str],
+    initiate_retries: int,
+    initiate_retry_interval_seconds: int,
+    broadcast_request: bool | None,
     verify_all: bool,
 ) -> int:
     cfg_path = _expand_path(config_path)
@@ -1275,6 +1357,9 @@ def run_verify_device(
                 send_encrypted=bool(send_encrypted),
                 initiate_to=str(initiate_to).strip(),
                 initiate_device_ids={s.strip() for s in initiate_device_ids if s.strip()},
+                initiate_retries=max(1, int(initiate_retries)),
+                initiate_retry_interval_seconds=max(0, int(initiate_retry_interval_seconds)),
+                broadcast_request=broadcast_request,
                 verify_all=bool(verify_all),
             )
         )

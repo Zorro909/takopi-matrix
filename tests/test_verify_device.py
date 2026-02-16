@@ -25,6 +25,11 @@ def test_cli_parses_verify_device_args() -> None:
             "@bot:example.org",
             "--initiate-device-id",
             "DEV1",
+            "--initiate-retries",
+            "5",
+            "--initiate-retry-interval",
+            "7",
+            "--no-broadcast-request",
             "--verify-all",
         ]
     )
@@ -36,7 +41,16 @@ def test_cli_parses_verify_device_args() -> None:
     assert ns.send_encrypted is False
     assert ns.initiate_to == "@bot:example.org"
     assert ns.initiate_device_id == ["DEV1"]
+    assert ns.initiate_retries == 5
+    assert ns.initiate_retry_interval == 7
+    assert ns.broadcast_request is False
     assert ns.verify_all is True
+
+
+def test_cli_defaults_broadcast_to_auto() -> None:
+    parser = _build_parser()
+    ns = parser.parse_args(["verify-device"])
+    assert ns.broadcast_request is None
 
 
 def test_resolve_creds_uses_whoami_device_id(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -97,6 +97,31 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Only target these device IDs when using --initiate-to (repeatable).",
     )
     verify.add_argument(
+        "--initiate-retries",
+        type=int,
+        default=3,
+        help="In initiator mode, re-send verification requests this many times (default: %(default)s).",
+    )
+    verify.add_argument(
+        "--initiate-retry-interval",
+        type=int,
+        default=10,
+        help="Seconds between initiator re-requests (default: %(default)s).",
+    )
+    verify.add_argument(
+        "--broadcast-request",
+        dest="broadcast_request",
+        action="store_true",
+        default=None,
+        help="In initiator mode, send a wildcard (*) request in addition to per-device requests.",
+    )
+    verify.add_argument(
+        "--no-broadcast-request",
+        dest="broadcast_request",
+        action="store_false",
+        help="In initiator mode, skip wildcard (*) request.",
+    )
+    verify.add_argument(
         "--verify-all",
         action="store_true",
         default=False,
@@ -121,6 +146,9 @@ def main(argv: list[str] | None = None) -> None:
             send_encrypted=bool(args.send_encrypted),
             initiate_to=str(args.initiate_to).strip(),
             initiate_device_ids=set(args.initiate_device_id),
+            initiate_retries=int(args.initiate_retries),
+            initiate_retry_interval_seconds=int(args.initiate_retry_interval),
+            broadcast_request=args.broadcast_request,
             verify_all=bool(args.verify_all),
         )
         raise SystemExit(rc)
