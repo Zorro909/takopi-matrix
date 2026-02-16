@@ -179,6 +179,12 @@ class MatrixBackend(TransportBackend):
         if device_id is not None and not isinstance(device_id, str):
             device_id = None
 
+        ignore_unverified_devices = config.get("ignore_unverified_devices")
+        if ignore_unverified_devices is not None and not isinstance(
+            ignore_unverified_devices, bool
+        ):
+            ignore_unverified_devices = None
+
         e2ee_enabled = config.get("e2ee_enabled")
         crypto_store_path: Path | None = None
         if e2ee_enabled is True or e2ee_enabled is None:
@@ -206,6 +212,9 @@ class MatrixBackend(TransportBackend):
             password=password,
             device_id=device_id,
             crypto_store_path=crypto_store_path,
+            ignore_unverified_devices=bool(ignore_unverified_devices)
+            if ignore_unverified_devices is not None
+            else False,
         )
 
         transport = MatrixTransport(client)

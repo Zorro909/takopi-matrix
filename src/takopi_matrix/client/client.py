@@ -76,6 +76,7 @@ class MatrixClient:
         device_name: str = "Takopi",
         crypto_store_path: Path | None = None,
         sync_store_path: Path | None = None,
+        ignore_unverified_devices: bool = False,
         http_client: httpx.AsyncClient | None = None,
         clock: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], Awaitable[None]] = anyio.sleep,
@@ -89,6 +90,7 @@ class MatrixClient:
         self._device_name = device_name
         self._crypto_store_path = crypto_store_path
         self._sync_store_path = sync_store_path or self._default_sync_store_path()
+        self._ignore_unverified_devices = bool(ignore_unverified_devices)
         self._http_client = http_client or httpx.AsyncClient(timeout=120)
         self._owns_http_client = http_client is None
         self._clock = clock
@@ -294,6 +296,31 @@ class MatrixClient:
             if isinstance(response, nio.SyncResponse):
                 self._sync_token = response.next_batch
                 self._save_sync_token(self._sync_token)
+
+                # Best-effort: keep the device store up-to-date for E2EE. Without
+                # an explicit keys_query(), new devices may never be discovered,
+                # which can prevent sharing Megolm session keys (messages show
+                # as "Unable to decrypt" for recipients).
+                if self.e2ee_available:
+                    try:
+                        should_query = getattr(client, "should_query_keys", False)
+                        keys_query_fn = getattr(client, "keys_query", None)
+                        if should_query and callable(keys_query_fn):
+                            qr = await keys_query_fn()
+                            if isinstance(qr, nio.KeysQueryError):
+                                logger.debug(
+                                    "matrix.e2ee.keys_query_failed",
+                                    error=qr.message,
+                                )
+                            else:
+                                logger.debug("matrix.e2ee.keys_query_ok")
+                    except Exception as exc:
+                        logger.debug(
+                            "matrix.e2ee.keys_query_error",
+                            error=str(exc),
+                            error_type=exc.__class__.__name__,
+                        )
+
                 return response
             if hasattr(response, "retry_after_ms"):
                 retry_ms = getattr(response, "retry_after_ms", 5000)
@@ -366,27 +393,96 @@ class MatrixClient:
         client = await self._ensure_nio_client()
 
         try:
+            # Keep the device store current so we can target newly-seen devices.
+            try:
+                should_query = getattr(client, "should_query_keys", False)
+                keys_query_fn = getattr(client, "keys_query", None)
+                if should_query and callable(keys_query_fn):
+                    qr = await keys_query_fn()
+                    if isinstance(qr, nio.KeysQueryError):
+                        logger.debug(
+                            "matrix.e2ee.keys_query_failed",
+                            room_id=room_id,
+                            error=qr.message,
+                        )
+                    else:
+                        logger.debug("matrix.e2ee.keys_query_ok", room_id=room_id)
+            except Exception as exc:
+                logger.debug(
+                    "matrix.e2ee.keys_query_error",
+                    room_id=room_id,
+                    error=str(exc),
+                    error_type=exc.__class__.__name__,
+                )
+
             # Claim one-time keys from devices we don't have sessions with
-            should_claim = getattr(client, "should_claim_keys", False)
-            if should_claim:
-                get_users_fn = getattr(client, "get_users_for_key_claiming", None)
-                if get_users_fn is not None:
-                    users = get_users_fn()
-                    if users:
-                        response = await client.keys_claim(users)
-                        if isinstance(response, nio.KeysClaimResponse):
-                            logger.debug(
-                                "matrix.e2ee.keys_claimed",
-                                room_id=room_id,
-                                users=list(users.keys()),
-                            )
+            claimed_users: dict[str, list[str]] | None = None
+            get_users_fn = getattr(client, "get_users_for_key_claiming", None)
+            if callable(get_users_fn):
+                users = get_users_fn()
+                if users:
+                    claimed_users = users
+
+            # If nio doesn't think it needs claiming, do a room-scoped check.
+            # After restarts, the in-memory state is empty, so "should_claim"
+            # can be false even though we have no Olm sessions to deliver
+            # Megolm keys to recipients.
+            if claimed_users is None:
+                rooms = getattr(client, "rooms", {})
+                room = rooms.get(room_id)
+                room_users = getattr(room, "users", {}) if room is not None else {}
+
+                room_user_ids: set[str] = set()
+                if hasattr(room_users, "keys"):
+                    room_user_ids = set(room_users.keys())
+                elif isinstance(room_users, (set, list, tuple)):
+                    room_user_ids = {str(u) for u in room_users}
+
+                device_store = getattr(client, "device_store", None)
+                olm = getattr(client, "olm", None)
+                session_store = (
+                    getattr(olm, "session_store", None) if olm is not None else None
+                )
+
+                if (
+                    room_user_ids
+                    and device_store is not None
+                    and session_store is not None
+                ):
+                    missing: dict[str, list[str]] = {}
+                    for user_id, devices in device_store.items():
+                        if user_id not in room_user_ids:
+                            continue
+                        for device_id, device in devices.items():
+                            if user_id == self.user_id and device_id == getattr(
+                                client, "device_id", None
+                            ):
+                                continue
+                            curve = getattr(device, "curve25519", None)
+                            if not curve:
+                                continue
+                            if session_store.get(curve):
+                                continue
+                            missing.setdefault(user_id, []).append(device_id)
+
+                    if missing:
+                        claimed_users = missing
+
+            if claimed_users is not None:
+                response = await client.keys_claim(claimed_users)
+                if isinstance(response, nio.KeysClaimResponse):
+                    logger.debug(
+                        "matrix.e2ee.keys_claimed",
+                        room_id=room_id,
+                        users=list(claimed_users.keys()),
+                    )
 
             # Share group session with room members
             share_fn = getattr(client, "share_group_session", None)
             if share_fn is not None:
                 response = await share_fn(
                     room_id,
-                    ignore_unverified_devices=True,
+                    ignore_unverified_devices=self._ignore_unverified_devices,
                 )
                 if isinstance(response, nio.ShareGroupSessionError):
                     logger.debug(
@@ -430,6 +526,7 @@ class MatrixClient:
                 return
 
             # DeviceStore.items() returns (user_id, dict(device_id, OlmDevice))
+            trusted = 0
             for user_id, devices in device_store.items():
                 if user_id not in users:
                     continue
@@ -438,11 +535,17 @@ class MatrixClient:
                         verify_fn = getattr(client, "verify_device", None)
                         if verify_fn is not None:
                             verify_fn(device)
+                            trusted += 1
                             logger.debug(
                                 "matrix.e2ee.device_trusted",
                                 user_id=user_id,
                                 device_id=device_id,
                             )
+
+            # If we trusted any new devices, make sure they can actually decrypt:
+            # claim missing Olm sessions and (re-)share the current room session.
+            if trusted:
+                await self.ensure_room_keys(room_id)
         except Exception as exc:
             logger.debug(
                 "matrix.e2ee.trust_error",
@@ -544,7 +647,7 @@ class MatrixClient:
                     room_id=room_id,
                     message_type="m.room.message",
                     content=content,
-                    ignore_unverified_devices=True,
+                    ignore_unverified_devices=self._ignore_unverified_devices,
                 )
                 if isinstance(response, nio.RoomSendResponse):
                     return {"event_id": response.event_id, "room_id": room_id}
@@ -601,7 +704,7 @@ class MatrixClient:
                     room_id=room_id,
                     message_type="m.room.message",
                     content=content,
-                    ignore_unverified_devices=True,
+                    ignore_unverified_devices=self._ignore_unverified_devices,
                 )
                 if isinstance(response, nio.RoomSendResponse):
                     return {"event_id": response.event_id, "room_id": room_id}
