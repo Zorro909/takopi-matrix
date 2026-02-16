@@ -588,11 +588,19 @@ async def _run_verifier(
     seen_mac_txns: set[str] = set()
     seen_accept_txns: set[str] = set()
     sent_key_txns: set[str] = set()
-    encrypted_txns: set[str] = set()
+    txn_channels: dict[str, str] = {}
 
-    def _mark_txn_encrypted(txn: str, event: Any) -> None:
+    def _mark_txn_channel(txn: str, event: Any) -> None:
+        txn = str(txn)
         if getattr(event, "_takopi_from_olm", False):
-            encrypted_txns.add(str(txn))
+            prev = txn_channels.get(txn)
+            txn_channels[txn] = "encrypted"
+            if debug_events and prev != "encrypted":
+                print(f"[debug] txn={txn}: channel=encrypted", flush=True)
+            return
+        txn_channels.setdefault(txn, "plaintext")
+        if debug_events and txn_channels.get(txn) == "plaintext":
+            print(f"[debug] txn={txn}: channel=plaintext", flush=True)
 
     async def _send_verif_txn(
         txn: str,
@@ -603,12 +611,19 @@ async def _run_verifier(
         debug_events: bool,
     ) -> None:
         # Once we see any verification event via Olm (m.room.encrypted wrapper),
-        # prefer encrypted-only replies for that transaction to avoid some clients
-        # cancelling due to duplicate plaintext+encrypted messages.
+        # follow the same channel for that transaction.
         sp = bool(send_plaintext)
         se = bool(send_encrypted)
-        if str(txn) in encrypted_txns and se:
+        channel = txn_channels.get(str(txn))
+        if channel == "encrypted" and se:
             sp = False
+        elif channel == "plaintext" and sp:
+            se = False
+        if not sp and not se:
+            if send_encrypted:
+                se = True
+            elif send_plaintext:
+                sp = True
         await _send_verif(
             client,
             target,
@@ -782,7 +797,6 @@ async def _run_verifier(
                             flush=True,
                         )
                     return
-                _mark_txn_encrypted(str(req_txn), event)
 
                 if initiate_to:
                     # We're initiating; ask the operator to accept the incoming
@@ -808,18 +822,28 @@ async def _run_verifier(
                     return
 
                 # Some clients send request/ready wrapped in Olm but still only
-                # reliably accept plaintext ready. For ready specifically, do
-                # not force "encrypted-only" even if we saw an Olm wrapper; send
-                # both when enabled.
-                await _send_verif(
-                    client,
-                    target,
-                    "m.key.verification.ready",
-                    ready,
-                    send_plaintext=send_plaintext,
-                    send_encrypted=send_encrypted,
-                    debug_events=debug_events,
-                )
+                # reliably accept plaintext ready. Prefer plaintext-only for the
+                # initial ready; if plaintext is disabled, fall back to encrypted.
+                if send_plaintext:
+                    await _send_plain(
+                        client,
+                        ToDeviceMessage("m.key.verification.ready", target.user_id, target.id, ready),
+                        debug_events=debug_events,
+                    )
+                elif send_encrypted:
+                    await _send_encrypted(
+                        client,
+                        target,
+                        "m.key.verification.ready",
+                        ready,
+                        debug_events=debug_events,
+                    )
+                else:
+                    print(
+                        f"[verifier] request txn={req_txn}: cannot send ready (all send modes disabled)",
+                        flush=True,
+                    )
+                    return
                 print(f"[verifier] request from {sender} txn={req_txn}: sent ready", flush=True)
                 return
 
@@ -833,7 +857,7 @@ async def _run_verifier(
                             flush=True,
                         )
                     return
-                _mark_txn_encrypted(str(ready_txn), event)
+                _mark_txn_channel(str(ready_txn), event)
 
                 if initiate_to and sender == initiate_to and str(ready_txn) in requested_txns:
                     target_dev_id = requested_txns.get(str(ready_txn)) or ""
@@ -879,7 +903,7 @@ async def _run_verifier(
         if not txn:
             return
         txn = str(txn)
-        _mark_txn_encrypted(txn, event)
+        _mark_txn_channel(txn, event)
 
         if isinstance(event, KeyVerificationAccept):
             print(f"[verifier] accept from {sender} txn={txn}", flush=True)
@@ -917,6 +941,11 @@ async def _run_verifier(
             return
 
         if isinstance(event, KeyVerificationStart):
+            if debug_events:
+                print(
+                    f"[debug] start txn={txn}: from_olm={bool(getattr(event, '_takopi_from_olm', False))}",
+                    flush=True,
+                )
             if txn in seen_start_txns:
                 if debug_events:
                     print(f"[debug] start txn={txn}: already handled; ignoring duplicate", flush=True)
@@ -974,6 +1003,11 @@ async def _run_verifier(
             return
 
         if isinstance(event, KeyVerificationKey):
+            if debug_events:
+                print(
+                    f"[debug] key txn={txn}: from_olm={bool(getattr(event, '_takopi_from_olm', False))}",
+                    flush=True,
+                )
             sas = _sas_for(txn)
             if sas is None:
                 print(f"[verifier] key txn={txn}: missing SAS state", flush=True)
@@ -1022,6 +1056,11 @@ async def _run_verifier(
             return
 
         if isinstance(event, KeyVerificationMac):
+            if debug_events:
+                print(
+                    f"[debug] mac txn={txn}: from_olm={bool(getattr(event, '_takopi_from_olm', False))}",
+                    flush=True,
+                )
             sas = _sas_for(txn)
             if sas is None:
                 print(f"[verifier] mac txn={txn}: missing SAS state", flush=True)
@@ -1096,6 +1135,8 @@ async def _run_verifier(
                 print(f"[verifier] cancelled txn={txn}: {reason}", flush=True)
             pending_txns.discard(txn)
             pending_share_key.discard(txn)
+            seen_start_txns.discard(txn)
+            txn_channels.pop(txn, None)
             try:
                 client.key_verifications.pop(txn, None)
             except Exception:
