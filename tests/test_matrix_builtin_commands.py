@@ -10,10 +10,8 @@ import pytest
 from takopi.api import RunContext
 
 from matrix_fixtures import make_matrix_message
-from takopi_matrix.bridge.commands.builtin import (
-    _validate_git_url,
-    handle_builtin_command,
-)
+import takopi_matrix.bridge.commands.builtin as builtin_commands
+from takopi_matrix.bridge.commands.builtin import handle_builtin_command
 
 
 class _FakeTransport:
@@ -54,6 +52,10 @@ def _build_cfg() -> tuple[Any, _FakeTransport]:
     thread_state.get_default_engine = AsyncMock(return_value=None)
     thread_state.get_engine_override = AsyncMock(return_value=None)
     thread_state.get_trigger_mode = AsyncMock(return_value=None)
+    client = AsyncMock()
+    client.is_direct_room = AsyncMock(return_value=True)
+    client.is_room_admin = AsyncMock(return_value=True)
+    client.send_file = AsyncMock(return_value={"event_id": "$file"})
     cfg = SimpleNamespace(
         exec_cfg=SimpleNamespace(transport=transport),
         runtime=runtime,
@@ -62,7 +64,8 @@ def _build_cfg() -> tuple[Any, _FakeTransport]:
         chat_sessions=AsyncMock(),
         room_project_map=None,
         file_download=SimpleNamespace(max_size_bytes=50 * 1024 * 1024),
-        client=AsyncMock(),
+        client=client,
+        user_allowlist=None,
     )
     return cfg, transport
 
@@ -206,95 +209,45 @@ async def test_file_put_without_attachment_returns_usage() -> None:
 
 
 @pytest.mark.anyio
-async def test_repo_list_is_handled() -> None:
+async def test_agent_set_denied_without_admin_or_private() -> None:
     cfg, transport = _build_cfg()
-    msg = make_matrix_message(text="/repo list")
+    cfg.client.is_direct_room.return_value = False
+    cfg.client.is_room_admin.return_value = False
+    msg = make_matrix_message(text="/agent set codex")
 
     handled = await handle_builtin_command(
         cfg,
         msg,
-        command_id="repo",
-        args_text="list",
+        command_id="agent",
+        args_text="set codex",
         ambient_context=None,
     )
 
     assert handled is True
-    assert transport.calls
-    assert "projects:" in str(transport.calls[-1]["text"])
-
-
-# --- _validate_git_url tests ---
-
-
-def test_validate_git_url_accepts_https() -> None:
-    assert _validate_git_url("https://github.com/user/repo.git") is None
-
-
-def test_validate_git_url_accepts_ssh() -> None:
-    assert _validate_git_url("ssh://git@github.com/user/repo.git") is None
-
-
-def test_validate_git_url_accepts_git_at() -> None:
-    assert _validate_git_url("git@github.com:user/repo.git") is None
-
-
-def test_validate_git_url_rejects_empty() -> None:
-    assert _validate_git_url("") is not None
-
-
-def test_validate_git_url_rejects_file_protocol() -> None:
-    result = _validate_git_url("file:///etc/passwd")
-    assert result is not None
-    assert "file://" in result
-
-
-def test_validate_git_url_rejects_flag_injection() -> None:
-    result = _validate_git_url("--upload-pack=evil")
-    assert result is not None
-    assert "'-'" in result
-
-
-def test_validate_git_url_rejects_unknown_scheme() -> None:
-    result = _validate_git_url("ftp://example.com/repo.git")
-    assert result is not None
-
-
-# --- /repo add validation tests ---
+    cfg.room_prefs.set_default_engine.assert_not_called()
+    assert "restricted to room admins" in str(transport.calls[-1]["text"])
 
 
 @pytest.mark.anyio
-async def test_repo_add_rejects_file_protocol_url() -> None:
+async def test_reload_requests_process_restart(monkeypatch) -> None:
     cfg, transport = _build_cfg()
-    cfg.runtime.config_path = "/tmp/fake.toml"
-    msg = make_matrix_message(text="/repo add evil file:///etc/passwd")
+    restarted = False
+
+    def _fake_restart() -> None:
+        nonlocal restarted
+        restarted = True
+
+    monkeypatch.setattr(builtin_commands, "_request_process_restart", _fake_restart)
+    msg = make_matrix_message(text="/reload")
 
     handled = await handle_builtin_command(
         cfg,
         msg,
-        command_id="repo",
-        args_text="add evil file:///etc/passwd",
+        command_id="reload",
+        args_text="",
         ambient_context=None,
     )
 
     assert handled is True
-    assert transport.calls
-    assert "invalid git URL" in str(transport.calls[-1]["text"])
-
-
-@pytest.mark.anyio
-async def test_repo_add_rejects_existing_alias() -> None:
-    cfg, transport = _build_cfg()
-    cfg.runtime.config_path = "/tmp/fake.toml"
-    msg = make_matrix_message(text="/repo add website https://example.com/repo.git")
-
-    handled = await handle_builtin_command(
-        cfg,
-        msg,
-        command_id="repo",
-        args_text="add website https://example.com/repo.git",
-        ambient_context=None,
-    )
-
-    assert handled is True
-    assert transport.calls
-    assert "already exists" in str(transport.calls[-1]["text"])
+    assert restarted is True
+    assert "restarting takopi process now" in str(transport.calls[-1]["text"])

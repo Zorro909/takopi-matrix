@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+import os
 from pathlib import Path
-import re
-from typing import TYPE_CHECKING, Any, Literal, cast
+import signal
+from typing import TYPE_CHECKING, Literal
 
-import anyio
 from takopi.api import (
     ConfigError,
     DirectiveError,
@@ -52,7 +52,6 @@ BUILTIN_COMMAND_IDS = frozenset(
         "reasoning",
         "trigger",
         "file",
-        "repo",
         "reload",
     }
 )
@@ -72,10 +71,6 @@ TRIGGER_USAGE = (
 )
 FILE_PUT_USAGE = "usage: `/file put <path>`"
 FILE_GET_USAGE = "usage: `/file get <path>`"
-REPO_USAGE = (
-    "usage: `/repo list`, `/repo add <alias> <git_url>`, `/repo bind <alias>`, "
-    "`/repo fetch [alias]`"
-)
 FILE_DEFAULT_DENY_GLOBS: tuple[str, ...] = (
     ".env",
     ".env.*",
@@ -85,23 +80,6 @@ FILE_DEFAULT_DENY_GLOBS: tuple[str, ...] = (
     "**/*.key",
 )
 FILE_DEFAULT_UPLOADS_DIR = "uploads"
-REPO_ROOT = Path("/workspace/repos")
-WORKTREE_ROOT = Path("/workspace/worktrees")
-ALIAS_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
-_ALLOWED_GIT_SCHEMES = ("https://", "http://", "git://", "ssh://", "git@")
-
-
-def _validate_git_url(url: str) -> str | None:
-    """Return an error message if *url* is not a safe git URL, else None."""
-    if not url:
-        return "empty URL"
-    if url.startswith("-"):
-        return "URL cannot start with '-'"
-    if url.lower().startswith("file://"):
-        return "file:// protocol not allowed"
-    if not any(url.startswith(s) for s in _ALLOWED_GIT_SCHEMES):
-        return f"URL must start with one of: {', '.join(_ALLOWED_GIT_SCHEMES)}"
-
 
 ENGINE_SOURCE_LABELS = {
     "directive": "directive",
@@ -129,6 +107,11 @@ class OverrideSetArgs:
     value: str | None
 
 
+def _request_process_restart() -> None:
+    """Request process restart via SIGTERM (supervisor should restart container)."""
+    os.kill(os.getpid(), signal.SIGTERM)
+
+
 async def _reply(
     cfg: MatrixBridgeConfig,
     *,
@@ -143,6 +126,62 @@ async def _reply(
         message=RenderedMessage(text=text),
         options=SendOptions(reply_to=reply_to, notify=notify),
     )
+
+
+async def _require_admin_or_private(
+    cfg: MatrixBridgeConfig,
+    msg: MatrixIncomingMessage,
+    *,
+    missing_sender: str,
+    failed_member: str,
+    denied: str,
+    allow_private: bool = True,
+) -> bool:
+    sender = msg.sender.strip() if isinstance(msg.sender, str) else ""
+    if not sender:
+        await _reply(
+            cfg,
+            room_id=msg.room_id,
+            event_id=msg.event_id,
+            text=missing_sender,
+        )
+        return False
+
+    # If allowlist is configured, it is authoritative.
+    if cfg.user_allowlist is not None:
+        if sender in cfg.user_allowlist:
+            return True
+        await _reply(
+            cfg,
+            room_id=msg.room_id,
+            event_id=msg.event_id,
+            text=denied,
+        )
+        return False
+
+    if allow_private:
+        is_direct = await cfg.client.is_direct_room(msg.room_id)
+        if is_direct is True:
+            return True
+
+    is_admin = await cfg.client.is_room_admin(msg.room_id, sender)
+    if is_admin is None:
+        await _reply(
+            cfg,
+            room_id=msg.room_id,
+            event_id=msg.event_id,
+            text=failed_member,
+        )
+        return False
+    if is_admin:
+        return True
+    await _reply(
+        cfg,
+        room_id=msg.room_id,
+        event_id=msg.event_id,
+        text=denied,
+    )
+    return False
 
 
 def _format_context(runtime, context: RunContext | None) -> str:
@@ -455,6 +494,14 @@ async def _handle_agent_command(
         if len(tokens) < 2:
             await _reply(cfg, room_id=room_id, event_id=event_id, text=AGENT_USAGE)
             return
+        if not await _require_admin_or_private(
+            cfg,
+            msg,
+            missing_sender="cannot verify sender for engine defaults.",
+            failed_member="failed to verify engine permissions.",
+            denied="changing default engines is restricted to room admins.",
+        ):
+            return
         engine = tokens[1].strip().lower()
         if engine not in cfg.runtime.engine_ids:
             await _reply(
@@ -491,6 +538,14 @@ async def _handle_agent_command(
         return
 
     if action == "clear":
+        if not await _require_admin_or_private(
+            cfg,
+            msg,
+            missing_sender="cannot verify sender for engine defaults.",
+            failed_member="failed to verify engine permissions.",
+            denied="changing default engines is restricted to room admins.",
+        ):
+            return
         if thread_root is not None:
             await cfg.thread_state.clear_default_engine(room_id, thread_root)
             await _reply(
@@ -560,6 +615,14 @@ async def _handle_model_command(
         if parsed.value is None:
             await _reply(cfg, room_id=room_id, event_id=event_id, text=MODEL_USAGE)
             return
+        if not await _require_admin_or_private(
+            cfg,
+            msg,
+            missing_sender="cannot verify sender for model overrides.",
+            failed_member="failed to verify model override permissions.",
+            denied="changing model overrides is restricted to room admins.",
+        ):
+            return
         if parsed.engine is None:
             selection = await _resolve_engine_selection(
                 cfg, msg, ambient_context=ambient_context
@@ -595,6 +658,14 @@ async def _handle_model_command(
     if action == "clear":
         if len(tokens) > 2:
             await _reply(cfg, room_id=room_id, event_id=event_id, text=MODEL_USAGE)
+            return
+        if not await _require_admin_or_private(
+            cfg,
+            msg,
+            missing_sender="cannot verify sender for model overrides.",
+            failed_member="failed to verify model override permissions.",
+            denied="changing model overrides is restricted to room admins.",
+        ):
             return
         engine = tokens[1].strip().lower() if len(tokens) == 2 else None
         if engine is None:
@@ -684,6 +755,14 @@ async def _handle_reasoning_command(
                 text=REASONING_USAGE,
             )
             return
+        if not await _require_admin_or_private(
+            cfg,
+            msg,
+            missing_sender="cannot verify sender for reasoning overrides.",
+            failed_member="failed to verify reasoning override permissions.",
+            denied="changing reasoning overrides is restricted to room admins.",
+        ):
+            return
         if parsed.engine is None:
             selection = await _resolve_engine_selection(
                 cfg, msg, ambient_context=ambient_context
@@ -742,6 +821,14 @@ async def _handle_reasoning_command(
                 event_id=event_id,
                 text=REASONING_USAGE,
             )
+            return
+        if not await _require_admin_or_private(
+            cfg,
+            msg,
+            missing_sender="cannot verify sender for reasoning overrides.",
+            failed_member="failed to verify reasoning override permissions.",
+            denied="changing reasoning overrides is restricted to room admins.",
+        ):
             return
         engine = tokens[1].strip().lower() if len(tokens) == 2 else None
         if engine is None:
@@ -829,6 +916,14 @@ async def _handle_trigger_command(
         return
 
     if action in {"all", "mentions"}:
+        if not await _require_admin_or_private(
+            cfg,
+            msg,
+            missing_sender="cannot verify sender for trigger settings.",
+            failed_member="failed to verify trigger permissions.",
+            denied="changing trigger mode is restricted to room admins.",
+        ):
+            return
         if thread_root is not None:
             mode = action if action == "mentions" else None
             await cfg.thread_state.set_trigger_mode(room_id, thread_root, mode)
@@ -858,6 +953,14 @@ async def _handle_trigger_command(
         return
 
     if action == "clear":
+        if not await _require_admin_or_private(
+            cfg,
+            msg,
+            missing_sender="cannot verify sender for trigger settings.",
+            failed_member="failed to verify trigger permissions.",
+            denied="changing trigger mode is restricted to room admins.",
+        ):
+            return
         if thread_root is not None:
             await cfg.thread_state.clear_trigger_mode(room_id, thread_root)
             await _reply(
@@ -945,6 +1048,14 @@ async def _handle_file_put_command(
 ) -> None:
     room_id = msg.room_id
     event_id = msg.event_id
+    if not await _require_admin_or_private(
+        cfg,
+        msg,
+        missing_sender="cannot verify sender for file transfer.",
+        failed_member="failed to verify file transfer permissions.",
+        denied="file transfer is restricted to room admins.",
+    ):
+        return
     if not msg.attachments:
         await _reply(cfg, room_id=room_id, event_id=event_id, text=FILE_PUT_USAGE)
         return
@@ -1043,6 +1154,14 @@ async def _handle_file_get_command(
 ) -> None:
     room_id = msg.room_id
     event_id = msg.event_id
+    if not await _require_admin_or_private(
+        cfg,
+        msg,
+        missing_sender="cannot verify sender for file transfer.",
+        failed_member="failed to verify file transfer permissions.",
+        denied="file transfer is restricted to room admins.",
+    ):
+        return
     context, run_root, error = await _resolve_file_context(
         cfg,
         msg,
@@ -1153,272 +1272,6 @@ async def _handle_file_get_command(
         )
 
 
-def _format_process_error(stderr: bytes | str | None) -> str:
-    if isinstance(stderr, bytes):
-        text = stderr.decode("utf-8", errors="replace").strip()
-    elif isinstance(stderr, str):
-        text = stderr.strip()
-    else:
-        text = ""
-    return text or "command failed"
-
-
-async def _save_config_toml(path: Path, document) -> None:
-    import tomlkit
-
-    temp_path = path.with_suffix(".toml.tmp")
-    temp_path.write_text(tomlkit.dumps(document))
-    temp_path.rename(path)
-
-
-async def _update_room_binding(path: Path, *, room_id: str, project: str) -> None:
-    import tomlkit
-
-    document = tomlkit.parse(path.read_text()) if path.exists() else tomlkit.document()
-    if "transports" not in document:
-        document["transports"] = tomlkit.table()
-    transports = cast("dict[str, Any]", document["transports"])
-    if "matrix" not in transports:
-        transports["matrix"] = tomlkit.table()
-    matrix = cast("dict[str, Any]", transports["matrix"])
-    if "room_projects" not in matrix:
-        matrix["room_projects"] = tomlkit.table()
-    cast("dict[str, Any]", matrix["room_projects"])[room_id] = project
-    await _save_config_toml(path, document)
-
-
-async def _update_project_config(
-    path: Path,
-    *,
-    alias: str,
-    repo_path: Path,
-    worktrees_path: Path,
-) -> None:
-    import tomlkit
-
-    document = tomlkit.parse(path.read_text()) if path.exists() else tomlkit.document()
-    if "projects" not in document:
-        document["projects"] = tomlkit.table()
-    projects = cast("dict[str, Any]", document["projects"])
-    if alias not in projects:
-        projects[alias] = tomlkit.table()
-    proj = cast("dict[str, Any]", projects[alias])
-    proj["path"] = str(repo_path)
-    proj["worktrees_dir"] = str(worktrees_path)
-    if "worktree_base" not in proj:
-        proj["worktree_base"] = "main"
-    await _save_config_toml(path, document)
-
-
-async def _repo_clone_or_fetch(alias: str, git_url: str) -> tuple[bool, str]:
-    repo_dir = REPO_ROOT / alias
-    if repo_dir.exists():
-        if (repo_dir / ".git").exists():
-            result = await anyio.run_process(
-                ["git", "-C", str(repo_dir), "fetch", "--all", "--prune"],
-                check=False,
-            )
-            if result.returncode == 0:
-                return True, f"updated existing repo at `{repo_dir}`"
-            return False, _format_process_error(result.stderr)
-        return False, f"target path exists and is not a git repo: `{repo_dir}`"
-    if not git_url:
-        return False, f"repo does not exist at `{repo_dir}`"
-
-    repo_dir.parent.mkdir(parents=True, exist_ok=True)
-    result = await anyio.run_process(
-        ["git", "clone", git_url, str(repo_dir)],
-        check=False,
-    )
-    if result.returncode == 0:
-        return True, f"cloned `{git_url}` to `{repo_dir}`"
-    return False, _format_process_error(result.stderr)
-
-
-async def _repo_fetch_only(repo_dir: Path) -> tuple[bool, str]:
-    if not (repo_dir / ".git").exists():
-        return False, f"repo not found at `{repo_dir}`"
-    result = await anyio.run_process(
-        ["git", "-C", str(repo_dir), "fetch", "--all", "--prune"],
-        check=False,
-    )
-    if result.returncode == 0:
-        return True, "ok"
-    return False, _format_process_error(result.stderr)
-
-
-def _resolve_project_alias(runtime, token: str) -> str | None:
-    return runtime.normalize_project_key(token)
-
-
-async def _handle_repo_command(
-    cfg: MatrixBridgeConfig,
-    msg: MatrixIncomingMessage,
-    args_text: str,
-) -> None:
-    room_id = msg.room_id
-    event_id = msg.event_id
-    tokens = split_command_args(args_text)
-    action = tokens[0].lower() if tokens else "list"
-
-    if action == "list":
-        aliases = sorted(set(cfg.runtime.project_aliases()), key=str.lower)
-        current = (
-            cfg.room_project_map.project_for_room(room_id)
-            if cfg.room_project_map is not None
-            else None
-        )
-        lines = [
-            f"projects: {', '.join(aliases) if aliases else 'none'}",
-            f"room binding: {current or 'none'}",
-        ]
-        await _reply(cfg, room_id=room_id, event_id=event_id, text="\n".join(lines))
-        return
-
-    config_path = cfg.runtime.config_path
-    if config_path is None:
-        await _reply(
-            cfg,
-            room_id=room_id,
-            event_id=event_id,
-            text="config path unavailable; cannot update project config.",
-        )
-        return
-
-    if action == "bind":
-        if len(tokens) != 2:
-            await _reply(cfg, room_id=room_id, event_id=event_id, text=REPO_USAGE)
-            return
-        alias = _resolve_project_alias(cfg.runtime, tokens[1])
-        if alias is None:
-            await _reply(
-                cfg,
-                room_id=room_id,
-                event_id=event_id,
-                text=f"unknown project {tokens[1]!r}",
-            )
-            return
-        await _update_room_binding(config_path, room_id=room_id, project=alias)
-        await _reply(
-            cfg,
-            room_id=room_id,
-            event_id=event_id,
-            text=f"bound room to `{alias}` in config. restart takopi to apply.",
-        )
-        return
-
-    if action == "add":
-        if len(tokens) != 3:
-            await _reply(cfg, room_id=room_id, event_id=event_id, text=REPO_USAGE)
-            return
-        alias = tokens[1].strip()
-        git_url = tokens[2].strip()
-        if not ALIAS_RE.match(alias):
-            await _reply(
-                cfg,
-                room_id=room_id,
-                event_id=event_id,
-                text="invalid alias; use letters, numbers, dot, underscore, dash.",
-            )
-            return
-        url_error = _validate_git_url(git_url)
-        if url_error is not None:
-            await _reply(
-                cfg,
-                room_id=room_id,
-                event_id=event_id,
-                text=f"invalid git URL: {url_error}",
-            )
-            return
-        existing = set(cfg.runtime.project_aliases())
-        if alias.lower() in {a.lower() for a in existing}:
-            await _reply(
-                cfg,
-                room_id=room_id,
-                event_id=event_id,
-                text=(
-                    f"project `{alias}` already exists. "
-                    "use `/repo fetch` to update, or choose a different alias."
-                ),
-            )
-            return
-        ok, message = await _repo_clone_or_fetch(alias, git_url)
-        if not ok:
-            await _reply(
-                cfg, room_id=room_id, event_id=event_id, text=f"error:\n{message}"
-            )
-            return
-        repo_path = REPO_ROOT / alias
-        worktrees_dir = WORKTREE_ROOT / alias
-        await _update_project_config(
-            config_path,
-            alias=alias,
-            repo_path=repo_path,
-            worktrees_path=worktrees_dir,
-        )
-        await _reply(
-            cfg,
-            room_id=room_id,
-            event_id=event_id,
-            text=(
-                f"{message}\nproject `{alias}` written to config.\n"
-                "optional next step: `/repo bind "
-                f"{alias}`\nrestart takopi to apply."
-            ),
-        )
-        return
-
-    if action == "fetch":
-        if len(tokens) > 2:
-            await _reply(cfg, room_id=room_id, event_id=event_id, text=REPO_USAGE)
-            return
-        aliases: list[str]
-        if len(tokens) == 2:
-            alias = _resolve_project_alias(cfg.runtime, tokens[1])
-            if alias is None:
-                await _reply(
-                    cfg,
-                    room_id=room_id,
-                    event_id=event_id,
-                    text=f"unknown project {tokens[1]!r}",
-                )
-                return
-            aliases = [alias]
-        else:
-            aliases = sorted(set(cfg.runtime.project_aliases()), key=str.lower)
-        if not aliases:
-            await _reply(
-                cfg,
-                room_id=room_id,
-                event_id=event_id,
-                text="no projects configured.",
-            )
-            return
-        results: list[str] = []
-        for alias in aliases:
-            try:
-                resolved = cfg.runtime.resolve_run_cwd(
-                    RunContext(project=alias, branch=None)
-                )
-            except ConfigError:
-                resolved = None
-            repo_dir = resolved if resolved is not None else (REPO_ROOT / alias)
-            ok, message = await _repo_fetch_only(repo_dir)
-            if ok:
-                results.append(f"{alias}: ok")
-            else:
-                results.append(f"{alias}: {message}")
-        await _reply(
-            cfg,
-            room_id=room_id,
-            event_id=event_id,
-            text="\n".join(results),
-        )
-        return
-
-    await _reply(cfg, room_id=room_id, event_id=event_id, text=REPO_USAGE)
-
-
 async def handle_builtin_command(
     cfg: MatrixBridgeConfig,
     msg: MatrixIncomingMessage,
@@ -1458,15 +1311,22 @@ async def handle_builtin_command(
             await _handle_file_get_command(cfg, msg, rest, ambient_context)
             return True
         return True
-    if command_id == "repo":
-        await _handle_repo_command(cfg, msg, args_text)
-        return True
     if command_id == "reload":
+        if not await _require_admin_or_private(
+            cfg,
+            msg,
+            missing_sender="cannot verify sender for reload command.",
+            failed_member="failed to verify reload permissions.",
+            denied="reload is restricted to room admins or allowlisted users.",
+            allow_private=False,
+        ):
+            return True
         await _reply(
             cfg,
             room_id=msg.room_id,
             event_id=msg.event_id,
-            text="configuration changed. restart takopi/container to apply.",
+            text="reload requested. restarting takopi process now.",
         )
+        _request_process_restart()
         return True
     return False

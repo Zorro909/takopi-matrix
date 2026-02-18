@@ -1277,6 +1277,89 @@ class MatrixClient:
             )
             return None
 
+    @_require_login
+    async def is_direct_room(self, room_id: str) -> bool | None:
+        """Return True when the room currently looks like a 1:1 DM."""
+        client = self._nio_client
+        assert client is not None  # Guaranteed by @_require_login
+
+        try:
+            response = await client.joined_members(room_id)
+            if isinstance(response, nio.JoinedMembersResponse):
+                return len(response.members) <= 2
+            logger.debug(
+                "matrix.room.direct_check_failed",
+                room_id=room_id,
+                error=getattr(response, "message", str(response)),
+            )
+            return None
+        except Exception as exc:
+            logger.debug(
+                "matrix.room.direct_check_error",
+                room_id=room_id,
+                error=str(exc),
+                error_type=exc.__class__.__name__,
+            )
+            return None
+
+    @_require_login
+    async def is_room_admin(
+        self, room_id: str, user_id: str, *, minimum_level: int = 50
+    ) -> bool | None:
+        """Return whether user has admin-like power level in room.
+
+        Uses `m.room.power_levels` and treats users with power level >= threshold
+        as privileged. Threshold is `max(minimum_level, state_default)`.
+        """
+        client = self._nio_client
+        assert client is not None  # Guaranteed by @_require_login
+
+        def _to_int(value: object, default: int) -> int:
+            if isinstance(value, int):
+                return value
+            if isinstance(value, float):
+                return int(value)
+            if isinstance(value, str):
+                try:
+                    return int(value.strip())
+                except ValueError:
+                    return default
+            return default
+
+        try:
+            response = await client.room_get_state_event(
+                room_id,
+                "m.room.power_levels",
+                "",
+            )
+            if not isinstance(response, nio.RoomGetStateEventResponse):
+                logger.debug(
+                    "matrix.room.power_levels_failed",
+                    room_id=room_id,
+                    user_id=user_id,
+                    error=getattr(response, "message", str(response)),
+                )
+                return None
+            content = response.content if isinstance(response.content, dict) else {}
+            users = content.get("users")
+            users_default = _to_int(content.get("users_default"), 0)
+            state_default = _to_int(content.get("state_default"), 50)
+            threshold = max(minimum_level, state_default)
+
+            user_level = users_default
+            if isinstance(users, dict):
+                user_level = _to_int(users.get(user_id), users_default)
+            return user_level >= threshold
+        except Exception as exc:
+            logger.debug(
+                "matrix.room.power_levels_error",
+                room_id=room_id,
+                user_id=user_id,
+                error=str(exc),
+                error_type=exc.__class__.__name__,
+            )
+            return None
+
     async def close(self) -> None:
         """Close the client and cleanup resources."""
         await self._outbox.close()
