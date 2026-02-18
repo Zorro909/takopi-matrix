@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from takopi.api import RunContext
 
 from takopi_matrix.room_prefs import (
     RoomPrefsStore,
@@ -106,6 +107,26 @@ class TestRoomPrefsStore:
             "!room1:example.org": "opus",
             "!room2:example.org": "sonnet",
         }
+
+    @pytest.mark.anyio
+    async def test_set_and_get_context(self, room_prefs: RoomPrefsStore) -> None:
+        room_id = "!room:example.org"
+        await room_prefs.set_context(
+            room_id, RunContext(project="website", branch="feat/green")
+        )
+        context = await room_prefs.get_context(room_id)
+        assert context is not None
+        assert context.project == "website"
+        assert context.branch == "feat/green"
+
+    @pytest.mark.anyio
+    async def test_clear_context(self, room_prefs: RoomPrefsStore) -> None:
+        room_id = "!room:example.org"
+        await room_prefs.set_context(
+            room_id, RunContext(project="website", branch=None)
+        )
+        await room_prefs.clear_context(room_id)
+        assert await room_prefs.get_context(room_id) is None
 
     @pytest.mark.anyio
     async def test_persistence(self, prefs_path: Path) -> None:

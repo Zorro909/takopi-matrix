@@ -15,12 +15,14 @@ from typing import TYPE_CHECKING, Literal
 from takopi.api import RunContext, TransportRuntime
 
 from .room_prefs import RoomPrefsStore
+from .thread_state import MatrixThreadStateStore
 
 if TYPE_CHECKING:
     from .room_projects import RoomProjectMap
 
 EngineSource = Literal[
     "directive",
+    "thread_default",
     "room_default",
     "project_default",
     "global_default",
@@ -34,12 +36,14 @@ class EngineResolution:
     Attributes:
         engine: The resolved engine ID to use.
         source: Where the engine was determined from.
+        thread_default: The thread's stored default engine, if any.
         room_default: The room's stored default engine, if any.
         project_default: The project's default engine, if any.
     """
 
     engine: str
     source: EngineSource
+    thread_default: str | None
     room_default: str | None
     project_default: str | None
 
@@ -51,6 +55,8 @@ async def resolve_engine_for_message(
     explicit_engine: str | None,
     room_id: str,
     room_prefs: RoomPrefsStore | None,
+    thread_root_event_id: str | None = None,
+    thread_state: MatrixThreadStateStore | None = None,
     room_project_map: RoomProjectMap | None = None,
 ) -> EngineResolution:
     """Resolve the engine to use for a message.
@@ -72,6 +78,17 @@ async def resolve_engine_for_message(
     Returns:
         EngineResolution with the selected engine and metadata.
     """
+    # Fetch thread default if store is available
+    thread_default = None
+    if (
+        thread_state is not None
+        and thread_root_event_id is not None
+        and thread_root_event_id.strip()
+    ):
+        thread_default = await thread_state.get_default_engine(
+            room_id, thread_root_event_id
+        )
+
     # Fetch room default if store is available
     room_default = None
     if room_prefs is not None:
@@ -90,6 +107,16 @@ async def resolve_engine_for_message(
         return EngineResolution(
             engine=explicit_engine,
             source="directive",
+            thread_default=thread_default,
+            room_default=room_default,
+            project_default=project_default,
+        )
+
+    if thread_default is not None:
+        return EngineResolution(
+            engine=thread_default,
+            source="thread_default",
+            thread_default=thread_default,
             room_default=room_default,
             project_default=project_default,
         )
@@ -98,6 +125,7 @@ async def resolve_engine_for_message(
         return EngineResolution(
             engine=room_default,
             source="room_default",
+            thread_default=thread_default,
             room_default=room_default,
             project_default=project_default,
         )
@@ -106,6 +134,7 @@ async def resolve_engine_for_message(
         return EngineResolution(
             engine=project_default,
             source="project_default",
+            thread_default=thread_default,
             room_default=room_default,
             project_default=project_default,
         )
@@ -113,6 +142,7 @@ async def resolve_engine_for_message(
     return EngineResolution(
         engine=runtime.default_engine,
         source="global_default",
+        thread_default=thread_default,
         room_default=room_default,
         project_default=project_default,
     )

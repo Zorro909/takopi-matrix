@@ -5,6 +5,19 @@ from __future__ import annotations
 import shlex
 
 
+def normalize_slash_prefix(text: str) -> str:
+    """Normalize slash-prefixed text.
+
+    Matrix clients often require `//cmd` so the sent text is `/cmd`.
+    Accept both forms by collapsing only the first leading slash.
+    """
+    stripped = text.lstrip()
+    if not stripped.startswith("//"):
+        return text
+    leading_ws = len(text) - len(stripped)
+    return f"{text[:leading_ws]}{stripped[1:]}"
+
+
 def parse_slash_command(text: str) -> tuple[str | None, str]:
     """Parse a slash command from text, returning (command_id, args_text).
 
@@ -15,7 +28,7 @@ def parse_slash_command(text: str) -> tuple[str | None, str]:
         A tuple of (command_id, args_text) where command_id is None if
         the text is not a slash command.
     """
-    stripped = text.lstrip()
+    stripped = normalize_slash_prefix(text).lstrip()
     if not stripped.startswith("/"):
         return None, text
     lines = stripped.splitlines()

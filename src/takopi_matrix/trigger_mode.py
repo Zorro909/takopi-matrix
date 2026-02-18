@@ -11,10 +11,11 @@ from typing import TYPE_CHECKING, Literal
 
 from takopi.api import TransportRuntime
 
-from .bridge.commands import parse_slash_command
+from .bridge.commands.parse import parse_slash_command
 
 if TYPE_CHECKING:
     from .room_prefs import RoomPrefsStore
+    from .thread_state import MatrixThreadStateStore
 
 TriggerMode = Literal["all", "mentions"]
 
@@ -23,6 +24,8 @@ async def resolve_trigger_mode(
     *,
     room_id: str,
     room_prefs: RoomPrefsStore | None,
+    thread_root_event_id: str | None = None,
+    thread_state: MatrixThreadStateStore | None = None,
 ) -> TriggerMode:
     """Resolve the effective trigger mode for a room.
 
@@ -33,6 +36,15 @@ async def resolve_trigger_mode(
     Returns:
         The effective trigger mode ('all' or 'mentions').
     """
+    if (
+        thread_state is not None
+        and thread_root_event_id is not None
+        and thread_root_event_id.strip()
+    ):
+        thread_mode = await thread_state.get_trigger_mode(room_id, thread_root_event_id)
+        if thread_mode == "mentions":
+            return "mentions"
+
     if room_prefs is not None:
         room_mode = await room_prefs.get_trigger_mode(room_id)
         if room_mode == "mentions":
