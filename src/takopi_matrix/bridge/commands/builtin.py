@@ -4,9 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-import os
 from pathlib import Path
-import signal
 from typing import TYPE_CHECKING, Literal
 
 from takopi.api import (
@@ -108,8 +106,8 @@ class OverrideSetArgs:
 
 
 def _request_process_restart() -> None:
-    """Request process restart via SIGTERM (supervisor should restart container)."""
-    os.kill(os.getpid(), signal.SIGTERM)
+    """Request process restart via graceful shutdown path."""
+    raise KeyboardInterrupt
 
 
 async def _reply(
