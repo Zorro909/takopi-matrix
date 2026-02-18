@@ -27,7 +27,11 @@ from .protocol import (
     TYPING_PRIORITY,
 )
 from .outbox import OutboxOp, MatrixOutbox
-from .content_builders import _build_reply_content, _build_edit_content
+from .content_builders import (
+    _build_edit_content,
+    _build_file_content,
+    _build_reply_content,
+)
 
 logger = get_logger(__name__)
 
@@ -695,6 +699,127 @@ class MatrixClient:
         return await self.enqueue_op(
             key=self.unique_key("send"),
             label="send_message",
+            execute=execute,
+            priority=SEND_PRIORITY,
+            room_id=room_id,
+        )
+
+    @_require_login
+    async def upload_file(
+        self,
+        payload: bytes,
+        *,
+        filename: str,
+        mimetype: str = "application/octet-stream",
+        encrypt: bool = True,
+    ) -> tuple[str | None, dict[str, Any] | None]:
+        """Upload content to Matrix media repository.
+
+        Returns `(mxc_url, file_info)` where `file_info` is populated for
+        encrypted uploads.
+        """
+        client = self._nio_client
+        assert client is not None  # Guaranteed by @_require_login
+
+        try:
+            response, file_info = await client.upload(
+                payload,
+                content_type=mimetype,
+                filename=filename,
+                encrypt=encrypt and self.e2ee_available,
+                filesize=len(payload),
+            )
+            if isinstance(response, nio.UploadResponse):
+                return response.content_uri, file_info
+            logger.error(
+                "matrix.upload.failed",
+                filename=filename,
+                error=getattr(response, "message", str(response)),
+            )
+            return None, None
+        except Exception as exc:
+            logger.error(
+                "matrix.upload.error",
+                filename=filename,
+                error=str(exc),
+                error_type=exc.__class__.__name__,
+            )
+            return None, None
+
+    async def send_file(
+        self,
+        room_id: str,
+        *,
+        filename: str,
+        payload: bytes,
+        mimetype: str | None = None,
+        reply_to_event_id: str | None = None,
+        disable_notification: bool = False,
+        encrypt: bool = True,
+    ) -> dict[str, Any] | None:
+        """Upload and send a file message to a room."""
+
+        async def execute() -> dict[str, Any] | None:
+            await self._ensure_nio_client()
+            if not self._logged_in and not await self.login():
+                return None
+            client = self._nio_client
+            assert client is not None
+
+            content_type = mimetype or "application/octet-stream"
+            mxc_url, file_info = await self.upload_file(
+                payload,
+                filename=filename,
+                mimetype=content_type,
+                encrypt=encrypt,
+            )
+            if mxc_url is None:
+                return None
+
+            content = _build_file_content(
+                filename=filename,
+                mxc_url=mxc_url,
+                mimetype=mimetype,
+                size=len(payload),
+                file_info=file_info,
+                reply_to_event_id=reply_to_event_id,
+            )
+
+            try:
+                response = await client.room_send(
+                    room_id=room_id,
+                    message_type="m.room.message",
+                    content=content,
+                    ignore_unverified_devices=True,
+                )
+                if isinstance(response, nio.RoomSendResponse):
+                    return {"event_id": response.event_id, "room_id": room_id}
+                if hasattr(response, "retry_after_ms"):
+                    retry_ms = getattr(response, "retry_after_ms", 5000)
+                    raise MatrixRetryAfter(retry_ms / 1000.0)
+                logger.error(
+                    "matrix.send_file.failed",
+                    room_id=room_id,
+                    filename=filename,
+                    error=getattr(response, "message", str(response)),
+                )
+                return None
+            except MatrixRetryAfter:
+                raise
+            except Exception as exc:
+                logger.error(
+                    "matrix.send_file.error",
+                    room_id=room_id,
+                    filename=filename,
+                    error=str(exc),
+                    error_type=exc.__class__.__name__,
+                )
+                return None
+
+        _ = disable_notification  # Currently unsupported for file events
+        return await self.enqueue_op(
+            key=self.unique_key("send_file"),
+            label="send_file",
             execute=execute,
             priority=SEND_PRIORITY,
             room_id=room_id,

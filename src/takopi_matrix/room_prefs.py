@@ -6,14 +6,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from takopi.api import get_logger
+from takopi.api import RunContext, get_logger
 
 from .engine_overrides import EngineOverrides, normalize_overrides
 from .state_store import JsonStateStore
 
 logger = get_logger(__name__)
 
-STATE_VERSION = 2
+STATE_VERSION = 3
 STATE_FILENAME = "matrix_room_prefs_state.json"
 
 
@@ -22,6 +22,8 @@ class _RoomPrefs:
     """Preferences for a single room."""
 
     default_engine: str | None = None
+    context_project: str | None = None
+    context_branch: str | None = None
     trigger_mode: str | None = None
     engine_overrides: dict[str, dict[str, str | None]] = field(default_factory=dict)
 
@@ -99,9 +101,12 @@ class RoomPrefsStore(JsonStateStore[_RoomPrefsState]):
         """Migrate room prefs from older versions.
 
         v1 -> v2: Add trigger_mode and engine_overrides fields to each room.
+        v2 -> v3: Add context_project and context_branch fields to each room.
         """
-        if from_version == 1 and STATE_VERSION == 2:
-            # Migrate v1 -> v2
+        migrated = data
+        current_version = from_version
+
+        if current_version == 1:
             rooms = data.get("rooms", {})
             migrated_rooms: dict[str, dict[str, Any]] = {}
             for room_id, room_data in rooms.items():
@@ -122,10 +127,66 @@ class RoomPrefsStore(JsonStateStore[_RoomPrefsState]):
                 "matrix.room_prefs.migration_v1_v2",
                 rooms_migrated=len(migrated_rooms),
             )
-            return {"version": 2, "rooms": migrated_rooms}
+            migrated = {"version": 2, "rooms": migrated_rooms}
+            current_version = 2
+
+        if current_version == 2:
+            rooms = migrated.get("rooms", {})
+            if isinstance(rooms, dict):
+                for room_data in rooms.values():
+                    if not isinstance(room_data, dict):
+                        continue
+                    room_data.setdefault("context_project", None)
+                    room_data.setdefault("context_branch", None)
+                logger.info(
+                    "matrix.room_prefs.migration_v2_v3",
+                    rooms_migrated=len(rooms),
+                )
+            migrated["version"] = 3
+            return migrated
 
         # Unknown migration path
-        return data
+        return migrated
+
+    # --- Room Context ---
+
+    async def get_context(self, room_id: str) -> RunContext | None:
+        """Get the bound context for a room."""
+        async with self._lock:
+            self._reload_locked_if_needed()
+            room = self._get_room_locked(room_id)
+            if room is None:
+                return None
+            project = _normalize_text(room.get("context_project"))
+            branch = _normalize_text(room.get("context_branch"))
+            if project is None:
+                return None
+            return RunContext(project=project, branch=branch)
+
+    async def set_context(self, room_id: str, context: RunContext | None) -> None:
+        """Set or clear the bound context for a room."""
+        project = _normalize_text(context.project) if context is not None else None
+        branch = _normalize_text(context.branch) if context is not None else None
+        async with self._lock:
+            self._reload_locked_if_needed()
+            room = self._get_room_locked(room_id)
+            if project is None:
+                if room is None:
+                    return
+                room["context_project"] = None
+                room["context_branch"] = None
+                if self._room_is_empty(room):
+                    self._remove_room_locked(room_id)
+                self._save_locked()
+                return
+            room = self._ensure_room_locked(room_id)
+            room["context_project"] = project
+            room["context_branch"] = branch
+            self._save_locked()
+
+    async def clear_context(self, room_id: str) -> None:
+        """Clear room-bound context."""
+        await self.set_context(room_id, None)
 
     # --- Default Engine ---
 
@@ -319,6 +380,8 @@ class RoomPrefsStore(JsonStateStore[_RoomPrefsState]):
             return entry
         entry = {
             "default_engine": None,
+            "context_project": None,
+            "context_branch": None,
             "trigger_mode": None,
             "engine_overrides": {},
         }
@@ -336,6 +399,10 @@ class RoomPrefsStore(JsonStateStore[_RoomPrefsState]):
         Empty rooms are candidates for removal to keep state file clean.
         """
         if _normalize_text(room.get("default_engine")) is not None:
+            return False
+        if _normalize_text(room.get("context_project")) is not None:
+            return False
+        if _normalize_text(room.get("context_branch")) is not None:
             return False
         if _normalize_trigger_mode(room.get("trigger_mode")) is not None:
             return False

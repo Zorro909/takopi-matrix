@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -35,11 +35,13 @@ class TestEngineResolution:
         res = EngineResolution(
             engine="opus",
             source="directive",
+            thread_default="codex",
             room_default="sonnet",
             project_default="haiku",
         )
         assert res.engine == "opus"
         assert res.source == "directive"
+        assert res.thread_default == "codex"
         assert res.room_default == "sonnet"
         assert res.project_default == "haiku"
 
@@ -47,6 +49,7 @@ class TestEngineResolution:
         res = EngineResolution(
             engine="opus",
             source="directive",
+            thread_default=None,
             room_default=None,
             project_default=None,
         )
@@ -71,10 +74,13 @@ class TestResolveEngineForMessage:
             explicit_engine="opus",
             room_id="!room:example.org",
             room_prefs=room_prefs,
+            thread_root_event_id=None,
+            thread_state=None,
         )
 
         assert result.engine == "opus"
         assert result.source == "directive"
+        assert result.thread_default is None
         assert result.room_default == "sonnet"
         assert result.project_default == "haiku"
 
@@ -94,6 +100,8 @@ class TestResolveEngineForMessage:
             explicit_engine=None,
             room_id="!room:example.org",
             room_prefs=room_prefs,
+            thread_root_event_id=None,
+            thread_state=None,
         )
 
         assert result.engine == "sonnet"
@@ -114,6 +122,8 @@ class TestResolveEngineForMessage:
             explicit_engine=None,
             room_id="!room:example.org",
             room_prefs=room_prefs,
+            thread_root_event_id=None,
+            thread_state=None,
         )
 
         assert result.engine == "opus"
@@ -134,6 +144,8 @@ class TestResolveEngineForMessage:
             explicit_engine=None,
             room_id="!room:example.org",
             room_prefs=room_prefs,
+            thread_root_event_id=None,
+            thread_state=None,
         )
 
         assert result.engine == "haiku"
@@ -151,6 +163,8 @@ class TestResolveEngineForMessage:
             explicit_engine=None,
             room_id="!room:example.org",
             room_prefs=None,
+            thread_root_event_id=None,
+            thread_state=None,
         )
 
         assert result.engine == mock_runtime.default_engine
@@ -173,6 +187,8 @@ class TestResolveEngineForMessage:
             explicit_engine=None,
             room_id="!room1:example.org",
             room_prefs=room_prefs,
+            thread_root_event_id=None,
+            thread_state=None,
         )
 
         result2 = await resolve_engine_for_message(
@@ -181,10 +197,35 @@ class TestResolveEngineForMessage:
             explicit_engine=None,
             room_id="!room2:example.org",
             room_prefs=room_prefs,
+            thread_root_event_id=None,
+            thread_state=None,
         )
 
         assert result1.engine == "opus"
         assert result2.engine == "sonnet"
+
+    @pytest.mark.anyio
+    async def test_thread_default_priority_over_room_default(
+        self,
+        mock_runtime: MagicMock,
+        room_prefs: RoomPrefsStore,
+    ) -> None:
+        thread_state = MagicMock()
+        thread_state.get_default_engine = AsyncMock(return_value="codex")
+        await room_prefs.set_default_engine("!room:example.org", "sonnet")
+
+        result = await resolve_engine_for_message(
+            runtime=mock_runtime,
+            context=None,
+            explicit_engine=None,
+            room_id="!room:example.org",
+            room_prefs=room_prefs,
+            thread_root_event_id="$thread",
+            thread_state=thread_state,
+        )
+
+        assert result.engine == "codex"
+        assert result.source == "thread_default"
 
 
 class TestAllowedRoomIds:

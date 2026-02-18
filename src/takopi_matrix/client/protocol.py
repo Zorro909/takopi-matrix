@@ -89,6 +89,16 @@ class NioClientProtocol(Protocol):
         allow_remote: bool = True,
     ) -> Any: ...
 
+    async def upload(
+        self,
+        data_provider: Any,
+        content_type: str = "application/octet-stream",
+        filename: str | None = None,
+        encrypt: bool = False,
+        monitor: Any | None = None,
+        filesize: int | None = None,
+    ) -> tuple[Any, dict[str, Any] | None]: ...
+
     async def room_get_event(self, room_id: str, event_id: str) -> Any: ...
 
     async def join(self, room_id: str) -> Any: ...

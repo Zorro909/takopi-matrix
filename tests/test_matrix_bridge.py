@@ -33,6 +33,7 @@ CODEX_ENGINE: EngineId = "codex"
 def test_is_cancel_command_basic() -> None:
     """/cancel is detected."""
     assert _is_cancel_command("/cancel")
+    assert _is_cancel_command("//cancel")
     assert _is_cancel_command("/cancel ")
     assert _is_cancel_command("  /cancel  ")
 
@@ -76,6 +77,13 @@ def test_is_cancel_command_partial() -> None:
 def test_parse_slash_command_basic() -> None:
     """Basic /cmd arg parsing."""
     cmd, args = parse_slash_command("/test hello world")
+    assert cmd == "test"
+    assert args == "hello world"
+
+
+def test_parse_slash_command_double_slash_prefix() -> None:
+    """Double slash prefix is normalized to a command."""
+    cmd, args = parse_slash_command("//test hello world")
     assert cmd == "test"
     assert args == "hello world"
 

@@ -11,7 +11,7 @@ from takopi_matrix.room_prefs import RoomPrefsStore
 
 
 class TestRoomPrefsStateMigration:
-    """Tests for v1 -> v2 state migration."""
+    """Tests for room prefs state migration."""
 
     @pytest.fixture
     def prefs_path(self, tmp_path: Path) -> Path:
@@ -19,8 +19,8 @@ class TestRoomPrefsStateMigration:
         return tmp_path / "matrix_room_prefs_state.json"
 
     @pytest.mark.anyio
-    async def test_v1_to_v2_migration(self, prefs_path: Path) -> None:
-        """v1 state with rooms is migrated to v2 format."""
+    async def test_v1_to_v3_migration(self, prefs_path: Path) -> None:
+        """v1 state with rooms is migrated to v3 format."""
         # Write v1 format state
         v1_state = {
             "version": 1,
@@ -46,11 +46,13 @@ class TestRoomPrefsStateMigration:
         assert mode1 is None  # 'all' is default, stored as None
         assert mode2 is None
 
-        # Verify file was updated to v2
+        # Verify file was updated to v3
         data = json.loads(prefs_path.read_text())
-        assert data["version"] == 2
+        assert data["version"] == 3
         assert "trigger_mode" in data["rooms"]["!room1:example.org"]
         assert "engine_overrides" in data["rooms"]["!room1:example.org"]
+        assert "context_project" in data["rooms"]["!room1:example.org"]
+        assert "context_branch" in data["rooms"]["!room1:example.org"]
 
     @pytest.mark.anyio
     async def test_v1_migration_preserves_all_rooms(self, prefs_path: Path) -> None:
@@ -73,8 +75,8 @@ class TestRoomPrefsStateMigration:
             assert engine == f"engine{i}"
 
     @pytest.mark.anyio
-    async def test_v2_state_loads_directly(self, prefs_path: Path) -> None:
-        """v2 state loads without migration."""
+    async def test_v2_state_migrates_to_v3(self, prefs_path: Path) -> None:
+        """v2 state migrates to v3 by adding context fields."""
         v2_state = {
             "version": 2,
             "rooms": {
@@ -93,6 +95,10 @@ class TestRoomPrefsStateMigration:
         mode = await store.get_trigger_mode("!room:example.org")
         assert engine == "opus"
         assert mode == "mentions"
+        data = json.loads(prefs_path.read_text())
+        assert data["version"] == 3
+        assert "context_project" in data["rooms"]["!room:example.org"]
+        assert "context_branch" in data["rooms"]["!room:example.org"]
 
     @pytest.mark.anyio
     async def test_future_version_resets_state(self, prefs_path: Path) -> None:
@@ -113,7 +119,7 @@ class TestRoomPrefsStateMigration:
 
     @pytest.mark.anyio
     async def test_empty_v1_state_migrates_cleanly(self, prefs_path: Path) -> None:
-        """Empty v1 state migrates to empty v2 state."""
+        """Empty v1 state migrates to empty v3 state."""
         v1_state = {"version": 1, "rooms": {}}
         prefs_path.write_text(json.dumps(v1_state))
 
@@ -123,9 +129,9 @@ class TestRoomPrefsStateMigration:
         all_rooms = await store.get_all_rooms()
         assert all_rooms == {}
 
-        # File should be v2 now
+        # File should be v3 now
         data = json.loads(prefs_path.read_text())
-        assert data["version"] == 2
+        assert data["version"] == 3
 
 
 class TestStateStoreEdgeCases:

@@ -11,24 +11,31 @@ from takopi.api import (
     MessageRef,
     RenderedMessage,
     ResumeToken,
+    RunContext,
     RunningTasks,
 )
 from takopi.api import list_command_ids, RESERVED_COMMAND_IDS, get_logger
 from takopi.api import ThreadJob, ThreadScheduler
+from takopi.runners.run_options import EngineRunOptions
 
+from ..engine_overrides import merge_overrides
 from ..markdown import MarkdownParts
 
 from ..client import MatrixRetryAfter
 from ..engine_defaults import (
     build_allowed_room_ids,
-    resolve_context_for_room,
     resolve_engine_for_message,
 )
 from ..trigger_mode import resolve_trigger_mode, should_trigger_run
 from ..render import prepare_matrix
 from ..types import MatrixIncomingMessage, MatrixReaction
 from .cancel import _handle_cancel, _handle_cancel_reaction, _is_cancel_command
-from .commands import dispatch_command, parse_slash_command
+from .commands import (
+    BUILTIN_COMMAND_IDS,
+    dispatch_command,
+    handle_builtin_command,
+    parse_slash_command,
+)
 from .config import MatrixBridgeConfig
 from .events import (
     ExponentialBackoff,
@@ -52,6 +59,68 @@ class _SessionScope:
     room_id: str
     sender: str
     thread_root_event_id: str | None
+
+
+def _context_overlay(
+    base: RunContext | None, override: RunContext | None
+) -> RunContext | None:
+    """Merge contexts, keeping base project when override only provides branch."""
+    if override is None:
+        return base
+    if base is None:
+        return override
+    project = override.project if override.project is not None else base.project
+    if override.project is None:
+        branch = override.branch if override.branch is not None else base.branch
+    else:
+        branch = override.branch
+    if project is None:
+        return None
+    return RunContext(project=project, branch=branch)
+
+
+async def _resolve_ambient_context(
+    *,
+    cfg: MatrixBridgeConfig,
+    room_id: str,
+    thread_root_event_id: str | None,
+) -> RunContext | None:
+    base = (
+        cfg.room_project_map.context_for_room(room_id)
+        if cfg.room_project_map is not None
+        else None
+    )
+    room_bound = (
+        await cfg.room_prefs.get_context(room_id)
+        if cfg.room_prefs is not None
+        else None
+    )
+    context = _context_overlay(base, room_bound)
+    if thread_root_event_id is not None and cfg.thread_state is not None:
+        thread_bound = await cfg.thread_state.get_context(room_id, thread_root_event_id)
+        context = _context_overlay(context, thread_bound)
+    return context
+
+
+async def _resolve_engine_run_options(
+    *,
+    cfg: MatrixBridgeConfig,
+    room_id: str,
+    thread_root_event_id: str | None,
+    engine: str,
+) -> EngineRunOptions | None:
+    thread_override = None
+    if thread_root_event_id is not None and cfg.thread_state is not None:
+        thread_override = await cfg.thread_state.get_engine_override(
+            room_id, thread_root_event_id, engine
+        )
+    room_override = None
+    if cfg.room_prefs is not None:
+        room_override = await cfg.room_prefs.get_engine_override(room_id, engine)
+    merged = merge_overrides(thread_override, room_override)
+    if merged is None:
+        return None
+    return EngineRunOptions(model=merged.model, reasoning=merged.reasoning)
 
 
 async def _lookup_session_resume(
@@ -353,6 +422,7 @@ async def run_main_loop(
             *{engine.lower() for engine in cfg.runtime.engine_ids},
             *{alias.lower() for alias in cfg.runtime.project_aliases()},
             *RESERVED_COMMAND_IDS,
+            *BUILTIN_COMMAND_IDS,
         }
 
         message_send, message_recv = anyio.create_memory_object_stream[
@@ -375,6 +445,7 @@ async def run_main_loop(
                 on_thread_known=None,
                 engine_override=None,
                 session_scope: _SessionScope | None = None,
+                run_options: EngineRunOptions | None = None,
             ) -> None:
                 if on_thread_known is not None or session_scope is not None:
 
@@ -408,17 +479,28 @@ async def run_main_loop(
                         reply_ref=reply_ref,
                         on_thread_known=wrapped_on_thread_known,
                         engine_override=engine_override,
+                        run_options=run_options,
                     )
                 finally:
                     await cfg.client.send_typing(room_id, typing=False)
 
             async def run_thread_job(job: ThreadJob) -> None:
+                room_id = str(job.chat_id)
+                thread_root_event_id = (
+                    str(job.thread_id) if job.thread_id is not None else None
+                )
+                run_options = await _resolve_engine_run_options(
+                    cfg=cfg,
+                    room_id=room_id,
+                    thread_root_event_id=thread_root_event_id,
+                    engine=job.resume_token.engine,
+                )
                 session_scope = session_scopes_by_msg.pop(
                     (str(job.chat_id), str(job.user_msg_id)),
                     None,
                 )
                 await run_job(
-                    str(job.chat_id),
+                    room_id,
                     str(job.user_msg_id),
                     job.text,
                     job.resume_token,
@@ -427,6 +509,7 @@ async def run_main_loop(
                     scheduler.note_thread_known,
                     None,
                     session_scope,
+                    run_options,
                 )
 
             scheduler = ThreadScheduler(task_group=tg, run_job=run_thread_job)
@@ -463,6 +546,11 @@ async def run_main_loop(
                     if reply_to is not None
                     else None
                 )
+                ambient_context = await _resolve_ambient_context(
+                    cfg=cfg,
+                    room_id=room_id,
+                    thread_root_event_id=msg.thread_root_event_id,
+                )
 
                 await cfg.client.send_read_receipt(room_id, event_id)
 
@@ -470,6 +558,8 @@ async def run_main_loop(
                 trigger_mode = await resolve_trigger_mode(
                     room_id=room_id,
                     room_prefs=cfg.room_prefs,
+                    thread_root_event_id=msg.thread_root_event_id,
+                    thread_state=cfg.thread_state,
                 )
                 if trigger_mode == "mentions":
                     # Determine if message is a reply to a bot message.
@@ -501,6 +591,15 @@ async def run_main_loop(
                     continue
 
                 command_id, args_text = parse_slash_command(text)
+                if command_id in BUILTIN_COMMAND_IDS:
+                    await handle_builtin_command(
+                        cfg,
+                        msg,
+                        command_id=command_id,
+                        args_text=args_text,
+                        ambient_context=ambient_context,
+                    )
+                    continue
                 if command_id is not None and command_id not in reserved_commands:
                     if command_id not in command_ids:
                         command_ids.update(
@@ -525,6 +624,7 @@ async def run_main_loop(
                     resolved = cfg.runtime.resolve_message(
                         text=text,
                         reply_text=reply_text,
+                        ambient_context=ambient_context,
                     )
                 except DirectiveError as exc:
                     await _send_plain(
@@ -537,13 +637,17 @@ async def run_main_loop(
 
                 text = resolved.prompt
                 resume_token = resolved.resume_token
+                context = resolved.context
 
-                # Resolve context: directive takes priority, then room's bound project
-                context = resolve_context_for_room(
-                    room_id=room_id,
-                    directive_context=resolved.context,
-                    room_project_map=cfg.room_project_map,
-                )
+                if (
+                    msg.thread_root_event_id is not None
+                    and cfg.thread_state is not None
+                    and context is not None
+                    and resolved.context_source == "directives"
+                ):
+                    await cfg.thread_state.set_context(
+                        room_id, msg.thread_root_event_id, context
+                    )
 
                 # Resolve engine using hierarchy:
                 # 1. Directive (@engine), 2. Room default, 3. Project default, 4. Global
@@ -553,6 +657,8 @@ async def run_main_loop(
                     explicit_engine=resolved.engine_override,
                     room_id=room_id,
                     room_prefs=cfg.room_prefs,
+                    thread_root_event_id=msg.thread_root_event_id,
+                    thread_state=cfg.thread_state,
                     room_project_map=cfg.room_project_map,
                 )
                 engine_override = engine_resolution.engine
@@ -611,6 +717,12 @@ async def run_main_loop(
                     )
 
                 if resume_token is None:
+                    run_options = await _resolve_engine_run_options(
+                        cfg=cfg,
+                        room_id=room_id,
+                        thread_root_event_id=msg.thread_root_event_id,
+                        engine=engine_override,
+                    )
                     tg.start_soon(
                         run_job,
                         room_id,
@@ -622,6 +734,7 @@ async def run_main_loop(
                         scheduler.note_thread_known,
                         engine_override,
                         session_scope,
+                        run_options,
                     )
                 else:
                     session_scopes_by_msg[(room_id, event_id)] = session_scope

@@ -46,6 +46,21 @@ class TestResolveTriggerMode:
         )
         assert result == "all"
 
+    @pytest.mark.anyio
+    async def test_thread_mode_mentions_overrides_room(self) -> None:
+        room_prefs = AsyncMock()
+        room_prefs.get_trigger_mode = AsyncMock(return_value=None)
+        thread_state = AsyncMock()
+        thread_state.get_trigger_mode = AsyncMock(return_value="mentions")
+
+        result = await resolve_trigger_mode(
+            room_id="!room:example.org",
+            room_prefs=room_prefs,
+            thread_root_event_id="$thread",
+            thread_state=thread_state,
+        )
+        assert result == "mentions"
+
 
 class TestShouldTriggerRun:
     """Tests for the should_trigger_run function."""

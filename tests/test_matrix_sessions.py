@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from takopi.api import ResumeToken
+from takopi.api import ResumeToken, RunContext
 from takopi_matrix.chat_sessions import (
     MatrixChatSessionStore,
     resolve_chat_sessions_path,
@@ -96,3 +96,21 @@ async def test_thread_sessions_are_per_thread_root(tmp_path: Path) -> None:
     b = await store.get_session_resume(room_id, "$thread-b:example.org", "codex")
     assert a is not None and a.value == "a"
     assert b is not None and b.value == "b"
+
+
+@pytest.mark.anyio
+async def test_thread_context_set_get_and_clear(tmp_path: Path) -> None:
+    store = MatrixThreadStateStore(tmp_path / "matrix_thread_state.json")
+    room_id = "!room:example.org"
+    thread_root = "$thread-a:example.org"
+
+    await store.set_context(
+        room_id, thread_root, RunContext(project="iphone-app", branch="feat/ui")
+    )
+    context = await store.get_context(room_id, thread_root)
+    assert context is not None
+    assert context.project == "iphone-app"
+    assert context.branch == "feat/ui"
+
+    await store.clear_context(room_id, thread_root)
+    assert await store.get_context(room_id, thread_root) is None

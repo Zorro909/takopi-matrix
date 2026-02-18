@@ -32,6 +32,7 @@ from takopi.api import (
     reset_run_base_dir,
     set_run_base_dir,
 )
+from takopi.runners.run_options import EngineRunOptions, apply_run_options
 
 from ..client import (
     parse_reaction,
@@ -172,6 +173,7 @@ async def _run_engine(
     on_thread_known: Callable[[ResumeToken, anyio.Event], Awaitable[None]]
     | None = None,
     engine_override: EngineId | None = None,
+    run_options: EngineRunOptions | None = None,
 ) -> None:
     """Run the engine to handle a message."""
     try:
@@ -230,17 +232,18 @@ async def _run_engine(
                 text=text,
                 reply_to=reply_ref,
             )
-            await handle_message(
-                exec_cfg,
-                runner=entry.runner,
-                incoming=incoming,
-                resume_token=resume_token,
-                context=context,
-                context_line=context_line,
-                strip_resume_line=runtime.is_resume_line,
-                running_tasks=running_tasks,
-                on_thread_known=on_thread_known,
-            )
+            with apply_run_options(run_options):
+                await handle_message(
+                    exec_cfg,
+                    runner=entry.runner,
+                    incoming=incoming,
+                    resume_token=resume_token,
+                    context=context,
+                    context_line=context_line,
+                    strip_resume_line=runtime.is_resume_line,
+                    running_tasks=running_tasks,
+                    on_thread_known=on_thread_known,
+                )
         finally:
             reset_run_base_dir(run_base_token)
     except Exception as exc:

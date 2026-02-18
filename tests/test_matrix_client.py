@@ -24,6 +24,7 @@ from takopi_matrix.client import (
     parse_room_media,
     parse_room_message,
 )
+from takopi_matrix.client.content_builders import _build_file_content
 from matrix_fixtures import MATRIX_ROOM_ID, MATRIX_SENDER, MATRIX_USER_ID
 
 
@@ -620,6 +621,40 @@ def test_parse_room_message_filters_room() -> None:
     )
 
     assert result is None
+
+
+def test_build_file_content_plain() -> None:
+    content = _build_file_content(
+        filename="report.txt",
+        mxc_url="mxc://example.org/abc",
+        mimetype="text/plain",
+        size=12,
+        file_info=None,
+        reply_to_event_id=None,
+    )
+    assert content["msgtype"] == "m.file"
+    assert content["url"] == "mxc://example.org/abc"
+    assert "file" not in content
+
+
+def test_build_file_content_encrypted() -> None:
+    content = _build_file_content(
+        filename="report.txt",
+        mxc_url="mxc://example.org/abc",
+        mimetype="text/plain",
+        size=12,
+        file_info={
+            "v": "v2",
+            "key": {"kty": "oct"},
+            "iv": "iv",
+            "hashes": {"sha256": "h"},
+        },
+        reply_to_event_id="$evt:example.org",
+    )
+    assert content["msgtype"] == "m.file"
+    assert "file" in content
+    assert content["file"]["url"] == "mxc://example.org/abc"
+    assert content["m.relates_to"]["m.in_reply_to"]["event_id"] == "$evt:example.org"
 
 
 def test_parse_room_message_with_formatted_body() -> None:

@@ -6,6 +6,7 @@ from takopi.api import MessageRef, RenderedMessage, RunningTasks, SendOptions
 from takopi.api import get_logger
 
 from ..types import MatrixIncomingMessage, MatrixReaction
+from .commands.parse import normalize_slash_prefix
 from .config import MatrixBridgeConfig
 
 logger = get_logger(__name__)
@@ -16,7 +17,7 @@ _CANCEL_REACTIONS = frozenset({"\u274c", "x", "X"})
 
 def _is_cancel_command(text: str) -> bool:
     """Check if text is a cancel command."""
-    stripped = text.strip()
+    stripped = normalize_slash_prefix(text).strip()
     if not stripped:
         return False
     command = stripped.split(maxsplit=1)[0]
