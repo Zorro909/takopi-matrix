@@ -14,8 +14,10 @@ from takopi_matrix.bridge.runtime import (
     _SessionScope,
     _lookup_session_resume,
     _resolve_ambient_context,
+    _should_warn_reply_resume_fallback,
     _store_session_resume,
 )
+from takopi_matrix.types import MatrixIncomingMessage
 
 
 @pytest.mark.anyio
@@ -186,3 +188,46 @@ async def test_resolve_ambient_context_uses_room_context_outside_thread() -> Non
         thread_root_event_id=None,
     )
     assert context == RunContext(project="room", branch="main")
+
+
+def _matrix_msg(
+    *,
+    reply_to_event_id: str | None,
+    reply_to_text_fetch_failed: bool,
+) -> MatrixIncomingMessage:
+    return MatrixIncomingMessage(
+        transport="matrix",
+        room_id="!room:example.org",
+        event_id="$event:example.org",
+        sender="@user:example.org",
+        text="hello",
+        reply_to_event_id=reply_to_event_id,
+        reply_to_text_fetch_failed=reply_to_text_fetch_failed,
+    )
+
+
+def test_should_warn_reply_resume_fallback_true_when_reply_fetch_failed() -> None:
+    msg = _matrix_msg(
+        reply_to_event_id="$reply:example.org", reply_to_text_fetch_failed=True
+    )
+    assert _should_warn_reply_resume_fallback(msg=msg, resume_token=None) is True
+
+
+def test_should_warn_reply_resume_fallback_false_when_resume_present() -> None:
+    msg = _matrix_msg(
+        reply_to_event_id="$reply:example.org", reply_to_text_fetch_failed=True
+    )
+    assert (
+        _should_warn_reply_resume_fallback(
+            msg=msg,
+            resume_token=ResumeToken(engine="codex", value="resume-1"),
+        )
+        is False
+    )
+
+
+def test_should_warn_reply_resume_fallback_false_when_not_failed() -> None:
+    msg = _matrix_msg(
+        reply_to_event_id="$reply:example.org", reply_to_text_fetch_failed=False
+    )
+    assert _should_warn_reply_resume_fallback(msg=msg, resume_token=None) is False

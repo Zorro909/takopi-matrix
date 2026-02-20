@@ -985,7 +985,7 @@ class TestReplyTextFetching:
 
     @pytest.mark.anyio
     async def test_get_event_text_returns_body_from_event(self) -> None:
-        """get_event_text extracts body from event response."""
+        """get_event_text extracts body from a plain text event."""
         from unittest.mock import AsyncMock, MagicMock
         from takopi_matrix.client import MatrixClient
 
@@ -1014,14 +1014,15 @@ class TestReplyTextFetching:
 
         result = await client.get_event_text("!room:matrix.org", "$event123")
 
-        assert result == "codex:abc123def"
+        assert result.text == "codex:abc123def"
+        assert result.status == "ok"
         mock_nio_client.room_get_event.assert_called_once_with(
             "!room:matrix.org", "$event123"
         )
 
     @pytest.mark.anyio
-    async def test_get_event_text_returns_none_on_error(self) -> None:
-        """get_event_text returns None when event fetch fails."""
+    async def test_get_event_text_prefers_edit_new_content(self) -> None:
+        """Edited events should prefer m.new_content.body over content.body."""
         from unittest.mock import AsyncMock, MagicMock
         from takopi_matrix.client import MatrixClient
 
@@ -1032,7 +1033,137 @@ class TestReplyTextFetching:
         )
         client._logged_in = True
 
-        # Mock nio client that raises on room_get_event
+        mock_nio_client = MagicMock()
+        mock_response = MagicMock()
+        mock_response.status_code = "200"
+        mock_event = MagicMock()
+        mock_event.source = {
+            "content": {
+                "body": "* old",
+                "m.new_content": {
+                    "body": "codex resume session_123",
+                },
+                "msgtype": "m.text",
+            }
+        }
+        mock_response.event = mock_event
+        mock_nio_client.room_get_event = AsyncMock(return_value=mock_response)
+        client._nio_client = mock_nio_client
+
+        result = await client.get_event_text("!room:matrix.org", "$event123")
+
+        assert result.text == "codex resume session_123"
+        assert result.status == "ok"
+
+    @pytest.mark.anyio
+    async def test_get_event_text_decrypts_encrypted_event(self) -> None:
+        """Encrypted events should be decrypted before body extraction."""
+        from unittest.mock import AsyncMock, MagicMock
+        from takopi_matrix.client import MatrixClient
+
+        client = MatrixClient(
+            homeserver="https://matrix.org",
+            user_id="@bot:matrix.org",
+            access_token="token",
+        )
+        client._logged_in = True
+
+        mock_nio_client = MagicMock()
+        mock_response = MagicMock()
+        mock_response.status_code = "200"
+        encrypted_event = MagicMock()
+        encrypted_event.source = {"type": "m.room.encrypted", "content": {}}
+        decrypted_event = MagicMock()
+        decrypted_event.source = {
+            "content": {
+                "body": "codex resume decrypted_session",
+                "msgtype": "m.text",
+            }
+        }
+        mock_response.event = encrypted_event
+        mock_nio_client.room_get_event = AsyncMock(return_value=mock_response)
+        mock_nio_client.decrypt_event = MagicMock(return_value=decrypted_event)
+        client._nio_client = mock_nio_client
+
+        result = await client.get_event_text("!room:matrix.org", "$event123")
+
+        assert result.text == "codex resume decrypted_session"
+        assert result.status == "ok"
+        mock_nio_client.decrypt_event.assert_called_once_with(encrypted_event)
+
+    @pytest.mark.anyio
+    async def test_get_event_text_reports_decrypt_failure(self) -> None:
+        """Encrypted events should report decrypt_failed when decrypt yields no event."""
+        from unittest.mock import AsyncMock, MagicMock
+        from takopi_matrix.client import MatrixClient
+
+        client = MatrixClient(
+            homeserver="https://matrix.org",
+            user_id="@bot:matrix.org",
+            access_token="token",
+        )
+        client._logged_in = True
+
+        mock_nio_client = MagicMock()
+        mock_response = MagicMock()
+        mock_response.status_code = "200"
+        encrypted_event = MagicMock()
+        encrypted_event.source = {"type": "m.room.encrypted", "content": {}}
+        mock_response.event = encrypted_event
+        mock_nio_client.room_get_event = AsyncMock(return_value=mock_response)
+        mock_nio_client.decrypt_event = MagicMock(return_value=None)
+        client._nio_client = mock_nio_client
+
+        result = await client.get_event_text("!room:matrix.org", "$event123")
+
+        assert result.text is None
+        assert result.status == "decrypt_failed"
+
+    @pytest.mark.anyio
+    async def test_get_event_text_returns_missing_when_no_body(self) -> None:
+        """get_event_text returns missing when event has no body."""
+        from unittest.mock import AsyncMock, MagicMock
+        from takopi_matrix.client import MatrixClient
+
+        client = MatrixClient(
+            homeserver="https://matrix.org",
+            user_id="@bot:matrix.org",
+            access_token="token",
+        )
+        client._logged_in = True
+
+        mock_nio_client = MagicMock()
+        mock_response = MagicMock()
+        mock_response.status_code = "200"
+        mock_event = MagicMock()
+        mock_event.source = {
+            "content": {
+                "msgtype": "m.text",
+            }
+        }
+        mock_event.body = None
+        mock_response.event = mock_event
+        mock_nio_client.room_get_event = AsyncMock(return_value=mock_response)
+        client._nio_client = mock_nio_client
+
+        result = await client.get_event_text("!room:matrix.org", "$event123")
+
+        assert result.text is None
+        assert result.status == "missing"
+
+    @pytest.mark.anyio
+    async def test_get_event_text_returns_error_on_fetch_exception(self) -> None:
+        """get_event_text returns error when room_get_event raises."""
+        from unittest.mock import AsyncMock, MagicMock
+        from takopi_matrix.client import MatrixClient
+
+        client = MatrixClient(
+            homeserver="https://matrix.org",
+            user_id="@bot:matrix.org",
+            access_token="token",
+        )
+        client._logged_in = True
+
         mock_nio_client = MagicMock()
         mock_nio_client.room_get_event = AsyncMock(
             side_effect=RuntimeError("Network error")
@@ -1041,7 +1172,8 @@ class TestReplyTextFetching:
 
         result = await client.get_event_text("!room:matrix.org", "$event123")
 
-        assert result is None
+        assert result.text is None
+        assert result.status == "error"
 
     @pytest.mark.anyio
     async def test_get_event_text_returns_none_when_no_body(self) -> None:
@@ -1075,7 +1207,8 @@ class TestReplyTextFetching:
 
         result = await client.get_event_text("!room:matrix.org", "$event123")
 
-        assert result is None
+        assert result.text is None
+        assert result.status == "missing"
 
     @pytest.mark.anyio
     async def test_get_event_sender_returns_sender_from_event(self) -> None:

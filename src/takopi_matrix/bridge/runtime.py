@@ -192,6 +192,16 @@ async def _is_reply_to_bot_message(
     return reply_sender == own_user_id
 
 
+def _should_warn_reply_resume_fallback(
+    *, msg: MatrixIncomingMessage, resume_token: ResumeToken | None
+) -> bool:
+    return (
+        resume_token is None
+        and msg.reply_to_event_id is not None
+        and msg.reply_to_text_fetch_failed
+    )
+
+
 async def _persist_new_rooms(room_ids: list[str], config_path: object) -> None:
     """Persist newly joined room IDs to the config file.
 
@@ -708,6 +718,20 @@ async def run_main_loop(
                             text,
                         )
                         continue
+
+                if _should_warn_reply_resume_fallback(
+                    msg=msg,
+                    resume_token=resume_token,
+                ):
+                    await _send_plain(
+                        cfg.exec_cfg,
+                        room_id=room_id,
+                        reply_to_event_id=event_id,
+                        text=(
+                            "warning: couldn't read the replied message for precise "
+                            "resume; using current chat/session context."
+                        ),
+                    )
 
                 if resume_token is None:
                     resume_token = await _lookup_session_resume(

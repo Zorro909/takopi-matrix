@@ -81,6 +81,7 @@ def test_matrix_incoming_message_minimal() -> None:
     assert msg.text == "hello"
     assert msg.thread_root_event_id is None
     assert msg.reply_to_event_id is None
+    assert msg.reply_to_text_fetch_failed is False
     assert msg.attachments is None
     assert msg.voice is None
 
@@ -98,6 +99,7 @@ def test_matrix_incoming_message_full() -> None:
         thread_root_event_id="$thread:example.org",
         reply_to_event_id="$prev:example.org",
         reply_to_text="previous message",
+        reply_to_text_fetch_failed=True,
         formatted_body="<p>hello</p>",
         attachments=[file],
         voice=voice,
@@ -106,6 +108,7 @@ def test_matrix_incoming_message_full() -> None:
     assert msg.thread_root_event_id == "$thread:example.org"
     assert msg.reply_to_event_id == "$prev:example.org"
     assert msg.reply_to_text == "previous message"
+    assert msg.reply_to_text_fetch_failed is True
     assert msg.formatted_body == "<p>hello</p>"
     assert msg.attachments == [file]
     assert msg.voice == voice

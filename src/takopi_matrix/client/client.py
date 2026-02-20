@@ -6,9 +6,11 @@ import functools
 import itertools
 import json
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import (
     Any,
+    Literal,
 )
 from collections.abc import Awaitable, Callable, Hashable
 
@@ -34,6 +36,40 @@ from .content_builders import (
 )
 
 logger = get_logger(__name__)
+
+
+@dataclass(frozen=True, slots=True)
+class EventTextResult:
+    text: str | None
+    status: Literal["ok", "missing", "decrypt_failed", "fetch_failed", "error"]
+
+
+def _extract_body_from_event_source(source: object) -> str | None:
+    if not isinstance(source, dict):
+        return None
+    content = source.get("content")
+    if not isinstance(content, dict):
+        return None
+
+    replacement = content.get("m.new_content")
+    if isinstance(replacement, dict):
+        replacement_body = replacement.get("body")
+        if isinstance(replacement_body, str):
+            replacement_body = replacement_body.strip()
+            if replacement_body:
+                return replacement_body
+
+    body = content.get("body")
+    if not isinstance(body, str):
+        return None
+    body = body.strip()
+    return body or None
+
+
+def _event_is_encrypted(event: object, source: object) -> bool:
+    if isinstance(source, dict) and source.get("type") == "m.room.encrypted":
+        return True
+    return type(event).__name__ in {"MegolmEvent", "RoomEncrypted"}
 
 
 def _require_login(
@@ -1187,13 +1223,11 @@ class MatrixClient:
             return None
 
     @_require_login
-    async def get_event_text(self, room_id: str, event_id: str) -> str | None:
-        """Fetch the text body of a specific event.
+    async def get_event_text(self, room_id: str, event_id: str) -> EventTextResult:
+        """Fetch effective text for a specific event.
 
-        Returns the text/body content of the event, or None if:
-        - The event doesn't exist
-        - The event is not a text message
-        - An error occurs during fetching
+        For edited messages, `content.m.new_content.body` is preferred.
+        For encrypted events, best-effort decryption is attempted.
         """
         client = self._nio_client
         assert client is not None  # Guaranteed by @_require_login
@@ -1220,28 +1254,54 @@ class MatrixClient:
                     event_id=event_id,
                     status=getattr(response, "status_code", None),
                 )
-                return None
+                return EventTextResult(text=None, status="fetch_failed")
 
             # Extract event from response
             event = getattr(response, "event", None)
             if event is None:
                 logger.debug("matrix.get_event.no_event_in_response")
-                return None
+                return EventTextResult(text=None, status="fetch_failed")
 
-            # nio returns Event objects, not dicts
-            # Try to get body from the Event object's source dict or attributes
-            body = None
-
-            # First try: Event object has a 'source' attribute with raw dict
             source = getattr(event, "source", None)
-            if isinstance(source, dict):
-                content = source.get("content")
-                if isinstance(content, dict):
-                    body = content.get("body")
+            if _event_is_encrypted(event, source):
+                decrypt_fn = getattr(client, "decrypt_event", None)
+                if decrypt_fn is None:
+                    logger.warning(
+                        "matrix.get_event.decrypt_unavailable",
+                        room_id=room_id,
+                        event_id=event_id,
+                    )
+                    return EventTextResult(text=None, status="decrypt_failed")
+                try:
+                    decrypted = decrypt_fn(event)
+                except Exception as exc:
+                    logger.warning(
+                        "matrix.get_event.decrypt_error",
+                        room_id=room_id,
+                        event_id=event_id,
+                        error=str(exc),
+                        error_type=exc.__class__.__name__,
+                    )
+                    return EventTextResult(text=None, status="decrypt_failed")
+                if decrypted is None or isinstance(
+                    decrypted, (nio.BadEvent, nio.UnknownBadEvent)
+                ):
+                    logger.warning(
+                        "matrix.get_event.decrypt_failed",
+                        room_id=room_id,
+                        event_id=event_id,
+                    )
+                    return EventTextResult(text=None, status="decrypt_failed")
+                event = decrypted
+                source = getattr(event, "source", None)
 
-            # Second try: Event object might have body as direct attribute
+            body = _extract_body_from_event_source(source)
             if body is None:
-                body = getattr(event, "body", None)
+                direct_body = getattr(event, "body", None)
+                if isinstance(direct_body, str):
+                    stripped_body = direct_body.strip()
+                    if stripped_body:
+                        body = stripped_body
 
             logger.debug(
                 "matrix.get_event.extraction",
@@ -1251,21 +1311,22 @@ class MatrixClient:
                 body_type=type(body).__name__ if body is not None else "None",
             )
 
-            if isinstance(body, str):
-                logger.info(
-                    "matrix.get_event.success",
+            if body is None:
+                logger.debug(
+                    "matrix.get_event.no_body",
                     room_id=room_id,
                     event_id=event_id,
-                    body_length=len(body),
-                    body_preview=body[:100] if len(body) > 100 else body,
                 )
-                return body
+                return EventTextResult(text=None, status="missing")
 
-            logger.debug(
-                "matrix.get_event.no_body",
-                body_value=body,
+            logger.info(
+                "matrix.get_event.success",
+                room_id=room_id,
+                event_id=event_id,
+                body_length=len(body),
+                body_preview=body[:100] if len(body) > 100 else body,
             )
-            return None
+            return EventTextResult(text=body, status="ok")
 
         except Exception as exc:
             logger.error(
@@ -1275,7 +1336,7 @@ class MatrixClient:
                 error=str(exc),
                 error_type=exc.__class__.__name__,
             )
-            return None
+            return EventTextResult(text=None, status="error")
 
     @_require_login
     async def is_direct_room(self, room_id: str) -> bool | None:
