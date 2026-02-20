@@ -1024,6 +1024,44 @@ class MatrixClient:
             return False
 
     @_require_login
+    async def get_event_sender(self, room_id: str, event_id: str) -> str | None:
+        """Fetch the sender user ID for a specific event."""
+        client = self._nio_client
+        assert client is not None  # Guaranteed by @_require_login
+
+        try:
+            response = await client.room_get_event(room_id, event_id)
+
+            # Check for error responses
+            if hasattr(response, "status_code") and response.status_code != "200":
+                return None
+
+            event = getattr(response, "event", None)
+            if event is None:
+                return None
+
+            sender = getattr(event, "sender", None)
+            if isinstance(sender, str):
+                return sender
+
+            source = getattr(event, "source", None)
+            if isinstance(source, dict):
+                source_sender = source.get("sender")
+                if isinstance(source_sender, str):
+                    return source_sender
+
+            return None
+        except Exception as exc:
+            logger.error(
+                "matrix.get_event_sender.error",
+                room_id=room_id,
+                event_id=event_id,
+                error=str(exc),
+                error_type=exc.__class__.__name__,
+            )
+            return None
+
+    @_require_login
     async def get_event_text(self, room_id: str, event_id: str) -> str | None:
         """Fetch the text body of a specific event.
 

@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from takopi.api import RenderedMessage, MessageRef
 from takopi_matrix.bridge.runtime import (
+    _is_reply_to_bot_message,
     _persist_new_rooms,
     _send_startup,
     _initialize_e2ee_if_available,
@@ -28,16 +28,16 @@ class FakeTransport:
         self.send_calls: list[dict] = []
         self._next_id = 1
 
-    async def send(
-        self, *, channel_id, message, options=None
-    ) -> MessageRef | None:
+    async def send(self, *, channel_id, message, options=None) -> MessageRef | None:
         ref = MessageRef(channel_id=channel_id, message_id=f"$sent{self._next_id}")
         self._next_id += 1
-        self.send_calls.append({
-            "channel_id": channel_id,
-            "message": message,
-            "options": options,
-        })
+        self.send_calls.append(
+            {
+                "channel_id": channel_id,
+                "message": message,
+                "options": options,
+            }
+        )
         return ref
 
 
@@ -77,7 +77,13 @@ class FakeClient:
     async def login(self) -> bool:
         return self._login_result
 
-    async def sync(self, timeout_ms: int = 30000):
+    async def sync(
+        self,
+        timeout_ms: int = 30000,
+        *,
+        full_state: bool = False,
+    ):
+        _ = full_state
         self.sync_calls += 1
         return MagicMock()
 
@@ -140,7 +146,7 @@ async def test_persist_new_rooms_empty_rooms() -> None:
 @pytest.mark.anyio
 async def test_persist_new_rooms_not_path_object() -> None:
     """persist_new_rooms returns early if config_path is not a Path."""
-    await _persist_new_rooms(["!room:x"], "/string/path")  # type: ignore
+    await _persist_new_rooms(["!room:x"], "/string/path")
 
 
 @pytest.mark.anyio
@@ -168,7 +174,7 @@ async def test_persist_new_rooms_success(tmp_path: Path) -> None:
     import tomlkit
 
     config = tomlkit.parse(config_path.read_text())
-    room_ids = config["transports"]["matrix"]["room_ids"]  # type: ignore
+    room_ids = [str(room_id) for room_id in config["transports"]["matrix"]["room_ids"]]  # type: ignore[index]
     assert "!existing:example.org" in room_ids
     assert "!new:example.org" in room_ids
 
@@ -374,3 +380,100 @@ async def test_startup_sequence_with_e2ee() -> None:
     # Should have trusted devices in all rooms
     assert len(client.trust_calls) == 2
     assert len(client.ensure_keys_calls) == 2
+
+
+# --- _is_reply_to_bot_message tests ---
+
+
+@pytest.mark.anyio
+async def test_is_reply_to_bot_message_running_task_match() -> None:
+    """Reply to an active running task is treated as a bot reply."""
+
+    class _Client:
+        async def get_event_sender(self, room_id: str, event_id: str) -> str | None:
+            raise AssertionError("Should not query sender when running task exists")
+
+    class _Cfg:
+        client = _Client()
+
+    room_id = "!room:example.org"
+    reply_id = "$progress123"
+    running_tasks = {
+        MessageRef(channel_id=room_id, message_id=reply_id): object(),
+    }
+
+    result = await _is_reply_to_bot_message(
+        room_id=room_id,
+        reply_to_event_id=reply_id,
+        own_user_id="@bot:example.org",
+        running_tasks=running_tasks,  # type: ignore[arg-type]
+        cfg=_Cfg(),  # type: ignore[arg-type]
+    )
+
+    assert result is True
+
+
+@pytest.mark.anyio
+async def test_is_reply_to_bot_message_completed_bot_message() -> None:
+    """Reply to completed bot message is recognized via sender lookup."""
+
+    class _Client:
+        async def get_event_sender(self, room_id: str, event_id: str) -> str | None:
+            return "@bot:example.org"
+
+    class _Cfg:
+        client = _Client()
+
+    result = await _is_reply_to_bot_message(
+        room_id="!room:example.org",
+        reply_to_event_id="$final123",
+        own_user_id="@bot:example.org",
+        running_tasks={},
+        cfg=_Cfg(),  # type: ignore[arg-type]
+    )
+
+    assert result is True
+
+
+@pytest.mark.anyio
+async def test_is_reply_to_bot_message_non_bot_sender() -> None:
+    """Reply to non-bot sender is not considered bot-targeted."""
+
+    class _Client:
+        async def get_event_sender(self, room_id: str, event_id: str) -> str | None:
+            return "@other:example.org"
+
+    class _Cfg:
+        client = _Client()
+
+    result = await _is_reply_to_bot_message(
+        room_id="!room:example.org",
+        reply_to_event_id="$final123",
+        own_user_id="@bot:example.org",
+        running_tasks={},
+        cfg=_Cfg(),  # type: ignore[arg-type]
+    )
+
+    assert result is False
+
+
+@pytest.mark.anyio
+async def test_is_reply_to_bot_message_lookup_failure() -> None:
+    """Lookup failures are treated as non-bot replies."""
+
+    class _Client:
+        async def get_event_sender(self, room_id: str, event_id: str) -> str | None:
+            raise RuntimeError("boom")
+
+    class _Cfg:
+        client = _Client()
+
+    result = await _is_reply_to_bot_message(
+        room_id="!room:example.org",
+        reply_to_event_id="$missing123",
+        own_user_id="@bot:example.org",
+        running_tasks={},
+        cfg=_Cfg(),  # type: ignore[arg-type]
+    )
+
+    assert result is False
