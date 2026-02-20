@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import anyio
 from types import SimpleNamespace
 from typing import cast
 from unittest.mock import AsyncMock
@@ -16,6 +17,7 @@ from takopi_matrix.bridge.runtime import (
     _resolve_ambient_context,
     _should_warn_reply_resume_fallback,
     _store_session_resume,
+    _wrap_on_thread_known,
 )
 from takopi_matrix.types import MatrixIncomingMessage
 
@@ -231,3 +233,88 @@ def test_should_warn_reply_resume_fallback_false_when_not_failed() -> None:
         reply_to_event_id="$reply:example.org", reply_to_text_fetch_failed=False
     )
     assert _should_warn_reply_resume_fallback(msg=msg, resume_token=None) is False
+
+
+@pytest.mark.anyio
+async def test_wrap_on_thread_known_stores_chat_session() -> None:
+    base_cb = AsyncMock()
+    chat_store = AsyncMock()
+    cfg = SimpleNamespace(
+        session_mode="chat",
+        chat_sessions=chat_store,
+        thread_state=AsyncMock(),
+    )
+    scope = _SessionScope(
+        room_id="!room:example.org",
+        sender="@user:example.org",
+        thread_root_event_id=None,
+    )
+    wrapped = _wrap_on_thread_known(cfg=cfg, scope=scope, base_cb=base_cb)
+    assert wrapped is not None
+
+    token = ResumeToken(engine="codex", value="resume-1")
+    done = anyio.Event()
+    await wrapped(token, done)
+
+    base_cb.assert_awaited_once_with(token, done)
+    chat_store.set_session_resume.assert_awaited_once_with(
+        "!room:example.org",
+        "@user:example.org",
+        token,
+    )
+
+
+@pytest.mark.anyio
+async def test_wrap_on_thread_known_stores_thread_session() -> None:
+    base_cb = AsyncMock()
+    thread_store = AsyncMock()
+    cfg = SimpleNamespace(
+        session_mode="chat",
+        chat_sessions=AsyncMock(),
+        thread_state=thread_store,
+    )
+    scope = _SessionScope(
+        room_id="!room:example.org",
+        sender="@user:example.org",
+        thread_root_event_id="$thread:example.org",
+    )
+    wrapped = _wrap_on_thread_known(cfg=cfg, scope=scope, base_cb=base_cb)
+    assert wrapped is not None
+
+    token = ResumeToken(engine="codex", value="resume-thread")
+    done = anyio.Event()
+    await wrapped(token, done)
+
+    base_cb.assert_awaited_once_with(token, done)
+    thread_store.set_session_resume.assert_awaited_once_with(
+        "!room:example.org",
+        "$thread:example.org",
+        token,
+    )
+
+
+@pytest.mark.anyio
+async def test_wrap_on_thread_known_skips_store_in_stateless_mode() -> None:
+    base_cb = AsyncMock()
+    chat_store = AsyncMock()
+    thread_store = AsyncMock()
+    cfg = SimpleNamespace(
+        session_mode="stateless",
+        chat_sessions=chat_store,
+        thread_state=thread_store,
+    )
+    scope = _SessionScope(
+        room_id="!room:example.org",
+        sender="@user:example.org",
+        thread_root_event_id=None,
+    )
+    wrapped = _wrap_on_thread_known(cfg=cfg, scope=scope, base_cb=base_cb)
+    assert wrapped is not None
+
+    token = ResumeToken(engine="codex", value="resume-ignored")
+    done = anyio.Event()
+    await wrapped(token, done)
+
+    base_cb.assert_awaited_once_with(token, done)
+    chat_store.set_session_resume.assert_not_called()
+    thread_store.set_session_resume.assert_not_called()

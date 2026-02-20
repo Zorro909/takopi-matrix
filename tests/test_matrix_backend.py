@@ -424,9 +424,9 @@ class TestMatrixBackend:
 class TestSessionModeConfig:
     """Test session mode config builder."""
 
-    def test_default_chat(self) -> None:
+    def test_default_stateless(self) -> None:
         config = {}
-        assert build_session_mode_config(config) == "chat"
+        assert build_session_mode_config(config) == "stateless"
 
     def test_chat_explicit(self) -> None:
         config = {"session_mode": "chat"}
@@ -436,6 +436,6 @@ class TestSessionModeConfig:
         config = {"session_mode": "stateless"}
         assert build_session_mode_config(config) == "stateless"
 
-    def test_invalid_falls_back_to_chat(self) -> None:
+    def test_invalid_falls_back_to_stateless(self) -> None:
         config = {"session_mode": "invalid"}
-        assert build_session_mode_config(config) == "chat"
+        assert build_session_mode_config(config) == "stateless"

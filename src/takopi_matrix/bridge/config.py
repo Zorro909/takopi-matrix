@@ -50,7 +50,7 @@ class MatrixBridgeConfig:
     voice_transcription: MatrixVoiceTranscriptionConfig | None = None
     file_download: MatrixFileDownloadConfig | None = None
     send_startup_message: bool = True
-    session_mode: SessionMode = "chat"
+    session_mode: SessionMode = "stateless"
     room_prefs: RoomPrefsStore | None = None
     chat_sessions: MatrixChatSessionStore | None = None
     thread_state: MatrixThreadStateStore | None = None

@@ -64,6 +64,44 @@ async def test_chat_sessions_are_per_sender(tmp_path: Path) -> None:
 
 
 @pytest.mark.anyio
+async def test_chat_sessions_sync_startup_cwd_clears_on_change(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = tmp_path / "matrix_chat_sessions_state.json"
+    first_cwd = tmp_path / "first"
+    second_cwd = tmp_path / "second"
+    first_cwd.mkdir()
+    second_cwd.mkdir()
+
+    monkeypatch.chdir(first_cwd)
+    store = MatrixChatSessionStore(path)
+    assert await store.sync_startup_cwd(Path.cwd()) is False
+    await store.set_session_resume(
+        "!room:example.org",
+        "@user:example.org",
+        ResumeToken(engine="codex", value="resume-1"),
+    )
+
+    store_same_cwd = MatrixChatSessionStore(path)
+    assert await store_same_cwd.sync_startup_cwd(Path.cwd()) is False
+    assert (
+        await store_same_cwd.get_session_resume(
+            "!room:example.org", "@user:example.org", "codex"
+        )
+    ) is not None
+
+    monkeypatch.chdir(second_cwd)
+    store_changed = MatrixChatSessionStore(path)
+    assert await store_changed.sync_startup_cwd(Path.cwd()) is True
+    assert (
+        await store_changed.get_session_resume(
+            "!room:example.org", "@user:example.org", "codex"
+        )
+    ) is None
+
+
+@pytest.mark.anyio
 async def test_thread_sessions_set_get_and_clear(tmp_path: Path) -> None:
     store = MatrixThreadStateStore(tmp_path / "matrix_thread_state.json")
     room_id = "!room:example.org"

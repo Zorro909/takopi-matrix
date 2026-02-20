@@ -5,10 +5,13 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING
 
+import anyio
+
 from takopi.api import (
     CommandContext,
     ConfigError,
     MessageRef,
+    ResumeToken,
     RunningTasks,
     ThreadScheduler,
     get_command,
@@ -34,6 +37,8 @@ async def dispatch_command(
     running_tasks: RunningTasks,
     scheduler: ThreadScheduler,
     run_engine_fn: Callable[..., Awaitable[None]],
+    on_thread_known: Callable[[ResumeToken, anyio.Event], Awaitable[None]]
+    | None = None,
 ) -> None:
     """Dispatch and execute a slash command.
 
@@ -63,6 +68,7 @@ async def dispatch_command(
         room_id=room_id,
         event_id=event_id,
         run_engine_fn=run_engine_fn,
+        on_thread_known=on_thread_known,
     )
     message_ref = MessageRef(channel_id=room_id, message_id=event_id)
     try:

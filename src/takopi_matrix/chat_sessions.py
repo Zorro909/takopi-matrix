@@ -16,6 +16,7 @@ STATE_FILENAME = "matrix_chat_sessions_state.json"
 @dataclass
 class _ChatSessionsState:
     version: int
+    cwd: str | None = None
     rooms: dict[str, dict[str, dict[str, str]]] = field(default_factory=dict)
 
 
@@ -77,6 +78,20 @@ class MatrixChatSessionStore(JsonStateStore[_ChatSessionsState]):
                 return None
             return ResumeToken(engine=engine_key, value=resume)
 
+    async def sync_startup_cwd(self, cwd: Path) -> bool:
+        normalized = str(cwd.expanduser().resolve())
+        async with self._lock:
+            self._reload_locked_if_needed()
+            previous = self._state.cwd
+            cleared = False
+            if previous is not None and previous != normalized:
+                self._state.rooms = {}
+                cleared = True
+            if previous != normalized:
+                self._state.cwd = normalized
+                self._save_locked()
+            return cleared
+
     async def set_session_resume(
         self, room_id: str, sender: str, token: ResumeToken
     ) -> None:
@@ -87,6 +102,8 @@ class MatrixChatSessionStore(JsonStateStore[_ChatSessionsState]):
             return
         async with self._lock:
             self._reload_locked_if_needed()
+            if self._state.cwd is None:
+                self._state.cwd = str(Path.cwd().expanduser().resolve())
             room = self._ensure_room_locked(room_id)
             sender_sessions = room.get(sender_key)
             if not isinstance(sender_sessions, dict):

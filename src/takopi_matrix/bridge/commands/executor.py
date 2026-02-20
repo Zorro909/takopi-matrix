@@ -11,6 +11,7 @@ from takopi.api import (
     ExecBridgeConfig,
     MessageRef,
     RenderedMessage,
+    ResumeToken,
     RunMode,
     RunningTasks,
     RunRequest,
@@ -69,6 +70,8 @@ class MatrixCommandExecutor(CommandExecutor):
         room_id: str,
         event_id: str,
         run_engine_fn: Callable[..., Awaitable[None]],
+        on_thread_known: Callable[[ResumeToken, anyio.Event], Awaitable[None]]
+        | None = None,
     ) -> None:
         self._exec_cfg = exec_cfg
         self._runtime = runtime
@@ -78,6 +81,7 @@ class MatrixCommandExecutor(CommandExecutor):
         self._event_id = event_id
         self._reply_ref = MessageRef(channel_id=room_id, message_id=event_id)
         self._run_engine_fn = run_engine_fn
+        self._on_thread_known = on_thread_known
 
     async def send(
         self,
@@ -105,6 +109,11 @@ class MatrixCommandExecutor(CommandExecutor):
             engine_override=request.engine,
             context=request.context,
         )
+        on_thread_known = (
+            self._scheduler.note_thread_known
+            if self._on_thread_known is None
+            else self._on_thread_known
+        )
         if mode == "capture":
             capture = _CaptureTransport()
             exec_cfg = ExecBridgeConfig(
@@ -122,7 +131,7 @@ class MatrixCommandExecutor(CommandExecutor):
                 resume_token=None,
                 context=request.context,
                 reply_ref=self._reply_ref,
-                on_thread_known=None,
+                on_thread_known=on_thread_known,
                 engine_override=engine,
             )
             return RunResult(engine=engine, message=capture.last_message)
@@ -136,7 +145,7 @@ class MatrixCommandExecutor(CommandExecutor):
             resume_token=None,
             context=request.context,
             reply_ref=self._reply_ref,
-            on_thread_known=self._scheduler.note_thread_known,
+            on_thread_known=on_thread_known,
             engine_override=engine,
         )
         return RunResult(engine=engine, message=None)

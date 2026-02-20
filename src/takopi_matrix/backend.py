@@ -82,9 +82,9 @@ def build_file_download_config(
 
 def build_session_mode_config(transport_config: dict[str, object]) -> SessionMode:
     raw = transport_config.get("session_mode")
-    if isinstance(raw, str) and raw.strip().lower() == "stateless":
-        return "stateless"
-    return "chat"
+    if isinstance(raw, str) and raw.strip().lower() == "chat":
+        return "chat"
+    return "stateless"
 
 
 def validate_matrix_config(

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from pathlib import Path
 
 import anyio
 
@@ -190,6 +192,24 @@ async def _is_reply_to_bot_message(
     if reply_sender is None:
         return False
     return reply_sender == own_user_id
+
+
+def _wrap_on_thread_known(
+    *,
+    cfg: MatrixBridgeConfig,
+    scope: _SessionScope | None,
+    base_cb: Callable[[ResumeToken, anyio.Event], Awaitable[None]] | None,
+) -> Callable[[ResumeToken, anyio.Event], Awaitable[None]] | None:
+    if base_cb is None and scope is None:
+        return None
+
+    async def _wrapped(token: ResumeToken, done: anyio.Event) -> None:
+        if base_cb is not None:
+            await base_cb(token, done)
+        if scope is not None:
+            await _store_session_resume(cfg=cfg, scope=scope, token=token)
+
+    return _wrapped
 
 
 def _should_warn_reply_resume_fallback(
@@ -403,6 +423,19 @@ async def _startup_sequence(cfg: MatrixBridgeConfig) -> bool:
     return True
 
 
+async def _sync_chat_sessions_cwd_if_enabled(cfg: MatrixBridgeConfig) -> None:
+    if cfg.session_mode != "chat" or cfg.chat_sessions is None:
+        return
+    cwd = Path.cwd().expanduser().resolve()
+    cleared = await cfg.chat_sessions.sync_startup_cwd(cwd)
+    if cleared:
+        logger.info(
+            "matrix.chat_sessions.cleared",
+            reason="startup_cwd_changed",
+            cwd=str(cwd),
+        )
+
+
 async def run_main_loop(
     cfg: MatrixBridgeConfig,
     *,
@@ -416,6 +449,8 @@ async def run_main_loop(
     try:
         if not await _startup_sequence(cfg):
             return
+
+        await _sync_chat_sessions_cwd_if_enabled(cfg)
 
         # Fetch display name once at startup (cached for mention detection)
         own_display_name = await cfg.client.get_display_name()
@@ -452,28 +487,17 @@ async def run_main_loop(
                 resume_token,
                 context,
                 reply_ref: MessageRef | None = None,
-                on_thread_known=None,
+                on_thread_known: Callable[[ResumeToken, anyio.Event], Awaitable[None]]
+                | None = None,
                 engine_override=None,
                 session_scope: _SessionScope | None = None,
                 run_options: EngineRunOptions | None = None,
             ) -> None:
-                if on_thread_known is not None or session_scope is not None:
-
-                    async def wrapped_on_thread_known(
-                        token: ResumeToken,
-                        done: anyio.Event,
-                    ) -> None:
-                        if on_thread_known is not None:
-                            await on_thread_known(token, done)
-                        if session_scope is not None:
-                            await _store_session_resume(
-                                cfg=cfg,
-                                scope=session_scope,
-                                token=token,
-                            )
-
-                else:
-                    wrapped_on_thread_known = None
+                wrapped_on_thread_known = _wrap_on_thread_known(
+                    cfg=cfg,
+                    scope=session_scope,
+                    base_cb=on_thread_known,
+                )
 
                 await cfg.client.send_typing(room_id, typing=True)
                 try:
@@ -626,6 +650,11 @@ async def run_main_loop(
                             running_tasks,
                             scheduler,
                             _run_engine,
+                            _wrap_on_thread_known(
+                                cfg=cfg,
+                                scope=session_scope,
+                                base_cb=scheduler.note_thread_known,
+                            ),
                         )
                         continue
 
