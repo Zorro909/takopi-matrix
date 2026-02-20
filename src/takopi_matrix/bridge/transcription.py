@@ -13,15 +13,15 @@ from .config import MatrixBridgeConfig, MatrixVoiceTranscriptionConfig
 
 logger = get_logger(__name__)
 
-_OPENAI_AUDIO_MAX_BYTES = 25 * 1024 * 1024
-_OPENAI_TRANSCRIPTION_MODEL = "gpt-4o-mini-transcribe"
 _OPENAI_TRANSCRIPTION_CHUNKING = "auto"
 
 
 def _resolve_openai_api_key(
     cfg: MatrixVoiceTranscriptionConfig,
 ) -> str | None:
-    """Resolve OpenAI API key from environment."""
+    """Resolve OpenAI API key from config or environment."""
+    if cfg.api_key:
+        return cfg.api_key
     env_key = os.environ.get("OPENAI_API_KEY")
     if isinstance(env_key, str):
         env_key = env_key.strip()
@@ -64,6 +64,7 @@ async def _transcribe_audio_matrix(
     filename: str,
     api_key: str,
     model: str,
+    base_url: str | None = None,
     mime_type: str | None = None,
     chunking_strategy: str = "auto",
 ) -> str | None:
@@ -88,7 +89,7 @@ async def _transcribe_audio_matrix(
     audio_file = io.BytesIO(audio_bytes)
     audio_file.name = filename
 
-    async with AsyncOpenAI(api_key=api_key, timeout=120) as client:
+    async with AsyncOpenAI(api_key=api_key, base_url=base_url, timeout=120) as client:
         try:
             response = await client.audio.transcriptions.create(
                 model=model,
@@ -130,11 +131,14 @@ async def _transcribe_voice(
             cfg.exec_cfg.transport,
             room_id=msg.room_id,
             reply_to_event_id=msg.event_id,
-            text="voice transcription requires OPENAI_API_KEY.",
+            text=(
+                "voice transcription requires OPENAI_API_KEY or "
+                "voice_transcription_api_key."
+            ),
         )
         return None
 
-    if voice.size is not None and voice.size > _OPENAI_AUDIO_MAX_BYTES:
+    if voice.size is not None and voice.size > settings.max_bytes:
         await _send_plain(
             cfg.exec_cfg.transport,
             room_id=msg.room_id,
@@ -155,7 +159,7 @@ async def _transcribe_voice(
         )
         return None
 
-    if len(audio_bytes) > _OPENAI_AUDIO_MAX_BYTES:
+    if len(audio_bytes) > settings.max_bytes:
         await _send_plain(
             cfg.exec_cfg.transport,
             room_id=msg.room_id,
@@ -169,7 +173,8 @@ async def _transcribe_voice(
         audio_bytes,
         filename=filename,
         api_key=api_key,
-        model=_OPENAI_TRANSCRIPTION_MODEL,
+        model=settings.model,
+        base_url=settings.base_url,
         chunking_strategy=_OPENAI_TRANSCRIPTION_CHUNKING,
         mime_type=voice.mimetype,
     )

@@ -59,8 +59,34 @@ def _build_startup_message(
 def build_voice_transcription_config(
     transport_config: dict[str, object],
 ) -> MatrixVoiceTranscriptionConfig:
+    max_bytes = transport_config.get("voice_max_bytes", 10 * 1024 * 1024)
+    if not isinstance(max_bytes, int) or max_bytes <= 0:
+        max_bytes = 10 * 1024 * 1024
+
+    model = transport_config.get("voice_transcription_model", "gpt-4o-mini-transcribe")
+    if not isinstance(model, str) or not model.strip():
+        model = "gpt-4o-mini-transcribe"
+
+    base_url_raw = transport_config.get("voice_transcription_base_url")
+    base_url = (
+        base_url_raw.strip()
+        if isinstance(base_url_raw, str) and base_url_raw.strip()
+        else None
+    )
+
+    api_key_raw = transport_config.get("voice_transcription_api_key")
+    api_key = (
+        api_key_raw.strip()
+        if isinstance(api_key_raw, str) and api_key_raw.strip()
+        else None
+    )
+
     return MatrixVoiceTranscriptionConfig(
         enabled=bool(transport_config.get("voice_transcription", False)),
+        max_bytes=max_bytes,
+        model=model.strip(),
+        base_url=base_url,
+        api_key=api_key,
     )
 
 

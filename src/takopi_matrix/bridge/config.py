@@ -26,6 +26,10 @@ class MatrixVoiceTranscriptionConfig:
     """Configuration for voice message transcription."""
 
     enabled: bool = False
+    max_bytes: int = 10 * 1024 * 1024
+    model: str = "gpt-4o-mini-transcribe"
+    base_url: str | None = None
+    api_key: str | None = None
 
 
 @dataclass(frozen=True)

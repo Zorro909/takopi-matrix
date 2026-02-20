@@ -145,11 +145,43 @@ class TestVoiceTranscriptionConfig:
         result = build_voice_transcription_config(config)
         assert result.enabled is False
 
-    def test_default_false(self) -> None:
-        """Missing voice_transcription defaults to disabled."""
+    def test_defaults(self) -> None:
+        """Missing values use Telegram-parity defaults."""
         config = {}
         result = build_voice_transcription_config(config)
         assert result.enabled is False
+        assert result.max_bytes == 10 * 1024 * 1024
+        assert result.model == "gpt-4o-mini-transcribe"
+        assert result.base_url is None
+        assert result.api_key is None
+
+    def test_custom_values(self) -> None:
+        config = {
+            "voice_transcription": True,
+            "voice_max_bytes": 1234,
+            "voice_transcription_model": "whisper-1",
+            "voice_transcription_base_url": "  http://localhost:8000/v1  ",
+            "voice_transcription_api_key": "  local  ",
+        }
+        result = build_voice_transcription_config(config)
+        assert result.enabled is True
+        assert result.max_bytes == 1234
+        assert result.model == "whisper-1"
+        assert result.base_url == "http://localhost:8000/v1"
+        assert result.api_key == "local"
+
+    def test_invalid_values_fall_back(self) -> None:
+        config = {
+            "voice_max_bytes": -1,
+            "voice_transcription_model": "",
+            "voice_transcription_base_url": " ",
+            "voice_transcription_api_key": " ",
+        }
+        result = build_voice_transcription_config(config)
+        assert result.max_bytes == 10 * 1024 * 1024
+        assert result.model == "gpt-4o-mini-transcribe"
+        assert result.base_url is None
+        assert result.api_key is None
 
 
 class TestFileDownloadConfig:

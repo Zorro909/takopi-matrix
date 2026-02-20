@@ -50,6 +50,10 @@ user_allowlist = ["@admin:example.org"]
 
 # Optional: voice transcription via OpenAI
 voice_transcription = false
+voice_max_bytes = 10485760 # 10 MB
+voice_transcription_model = "gpt-4o-mini-transcribe" # optional
+voice_transcription_base_url = "http://localhost:8000/v1" # optional
+voice_transcription_api_key = "local" # optional
 
 # Optional: file download settings
 file_download = true
@@ -88,8 +92,12 @@ The Matrix transport uses full Matrix HTML formatting (`org.matrix.custom.html`)
 Like the Telegram transport, Matrix supports voice message transcription via OpenAI:
 
 1. Set `voice_transcription = true` in config
-2. Set `OPENAI_API_KEY` environment variable
-3. Send voice messages (m.audio) to trigger transcription
+2. Set `OPENAI_API_KEY` environment variable (or `voice_transcription_api_key` in config)
+3. Optionally set `voice_transcription_base_url` for a local OpenAI-compatible server
+4. Send voice messages (m.audio) to trigger transcription
+
+If your local server requires a specific model name, set `voice_transcription_model`
+(for example, `whisper-1`).
 
 ### File Downloads
 
