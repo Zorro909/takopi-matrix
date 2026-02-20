@@ -583,7 +583,10 @@ async def test_room_prefs_get_override_invalid_model_type(tmp_path: Path) -> Non
                 "default_engine": None,
                 "trigger_mode": None,
                 "engine_overrides": {
-                    "opus": {"model": 123, "reasoning": "medium"},  # model should be string
+                    "opus": {
+                        "model": 123,
+                        "reasoning": "medium",
+                    },  # model should be string
                 },
             },
         },
@@ -613,7 +616,10 @@ async def test_room_prefs_get_override_invalid_reasoning_type(tmp_path: Path) ->
                 "default_engine": None,
                 "trigger_mode": None,
                 "engine_overrides": {
-                    "opus": {"model": "gpt-4", "reasoning": 456},  # reasoning should be string
+                    "opus": {
+                        "model": "gpt-4",
+                        "reasoning": 456,
+                    },  # reasoning should be string
                 },
             },
         },
@@ -665,7 +671,9 @@ async def test_room_prefs_set_override_creates_overrides_dict(tmp_path: Path) ->
 
     from takopi_matrix.engine_overrides import EngineOverrides
 
-    await store.set_engine_override("!room:example.org", "opus", EngineOverrides(model="gpt-4"))
+    await store.set_engine_override(
+        "!room:example.org", "opus", EngineOverrides(model="gpt-4")
+    )
 
     result = await store.get_engine_override("!room:example.org", "opus")
     assert result is not None
@@ -732,6 +740,37 @@ async def test_has_engine_overrides_skips_non_dict(tmp_path: Path) -> None:
     result = await store.get_engine_override("!room:example.org", "valid")
     assert result is not None
     assert result.model == "gpt-4"
+
+
+@pytest.mark.anyio
+async def test_room_is_empty_with_invalid_override_value_types(tmp_path: Path) -> None:
+    """Malformed override value types do not crash room cleanup checks."""
+    import json
+
+    state_path = tmp_path / "matrix_room_prefs_state.json"
+
+    state = {
+        "version": 2,
+        "rooms": {
+            "!room:example.org": {
+                "default_engine": "opus",
+                "trigger_mode": None,
+                "engine_overrides": {
+                    "opus": {"model": 123, "reasoning": 456},
+                },
+            },
+        },
+    }
+    state_path.write_text(json.dumps(state))
+
+    store = RoomPrefsStore(state_path)
+
+    # This path calls _room_is_empty after clearing defaults; malformed
+    # override fields should be treated as empty and never crash.
+    await store.clear_default_engine("!room:example.org")
+
+    all_rooms = await store.get_all_rooms()
+    assert "!room:example.org" not in all_rooms
 
 
 @pytest.mark.anyio

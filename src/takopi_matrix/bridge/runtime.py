@@ -45,6 +45,39 @@ MESSAGE_QUEUE_SIZE = 100  # Max buffered messages before backpressure
 REACTION_QUEUE_SIZE = 100  # Max buffered reactions before backpressure
 
 
+async def _is_reply_to_bot_message(
+    *,
+    room_id: str,
+    reply_to_event_id: str | None,
+    own_user_id: str,
+    running_tasks: RunningTasks,
+    cfg: MatrixBridgeConfig,
+) -> bool:
+    """Check whether a reply targets a bot message (running or completed)."""
+    if reply_to_event_id is None:
+        return False
+
+    reply_ref = MessageRef(channel_id=room_id, message_id=reply_to_event_id)
+    if reply_ref in running_tasks:
+        return True
+
+    try:
+        reply_sender = await cfg.client.get_event_sender(room_id, reply_to_event_id)
+    except Exception as exc:
+        logger.warning(
+            "matrix.reply_lookup.failed",
+            room_id=room_id,
+            reply_to_event_id=reply_to_event_id,
+            error=str(exc),
+            error_type=exc.__class__.__name__,
+        )
+        return False
+
+    if reply_sender is None:
+        return False
+    return reply_sender == own_user_id
+
+
 async def _persist_new_rooms(room_ids: list[str], config_path: object) -> None:
     """Persist newly joined room IDs to the config file.
 
@@ -362,13 +395,14 @@ async def run_main_loop(
                     room_prefs=cfg.room_prefs,
                 )
                 if trigger_mode == "mentions":
-                    # Determine if message is a reply to a bot message
-                    reply_to_is_bot = False
-                    if reply_to is not None:
-                        reply_to_is_bot = (
-                            MessageRef(channel_id=room_id, message_id=reply_to)
-                            in running_tasks
-                        )
+                    # Determine if message is a reply to a bot message.
+                    reply_to_is_bot = await _is_reply_to_bot_message(
+                        room_id=room_id,
+                        reply_to_event_id=reply_to,
+                        own_user_id=own_user_id,
+                        running_tasks=running_tasks,
+                        cfg=cfg,
+                    )
                     if not should_trigger_run(
                         text,
                         own_user_id=own_user_id,

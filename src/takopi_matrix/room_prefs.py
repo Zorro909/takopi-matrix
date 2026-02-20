@@ -350,9 +350,18 @@ class RoomPrefsStore(JsonStateStore[_RoomPrefsState]):
         for override_data in overrides.values():
             if not isinstance(override_data, dict):
                 continue
+
+            model = override_data.get("model")
+            if model is not None and not isinstance(model, str):
+                model = None
+
+            reasoning = override_data.get("reasoning")
+            if reasoning is not None and not isinstance(reasoning, str):
+                reasoning = None
+
             override = EngineOverrides(
-                model=override_data.get("model"),
-                reasoning=override_data.get("reasoning"),
+                model=model,
+                reasoning=reasoning,
             )
             if normalize_overrides(override) is not None:
                 return True

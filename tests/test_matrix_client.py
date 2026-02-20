@@ -1016,6 +1016,82 @@ class TestReplyTextFetching:
 
         assert result is None
 
+    @pytest.mark.anyio
+    async def test_get_event_sender_returns_sender_from_event(self) -> None:
+        """get_event_sender extracts sender from event attribute."""
+        from unittest.mock import AsyncMock, MagicMock
+        from takopi_matrix.client import MatrixClient
+
+        client = MatrixClient(
+            homeserver="https://matrix.org",
+            user_id="@bot:matrix.org",
+            access_token="token",
+        )
+        client._logged_in = True
+
+        mock_nio_client = MagicMock()
+        mock_response = MagicMock()
+        mock_response.status_code = "200"
+        mock_event = MagicMock()
+        mock_event.sender = "@bot:matrix.org"
+        mock_response.event = mock_event
+        mock_nio_client.room_get_event = AsyncMock(return_value=mock_response)
+        client._nio_client = mock_nio_client
+
+        result = await client.get_event_sender("!room:matrix.org", "$event123")
+
+        assert result == "@bot:matrix.org"
+
+    @pytest.mark.anyio
+    async def test_get_event_sender_falls_back_to_source(self) -> None:
+        """get_event_sender uses source dict when sender attribute is absent."""
+        from unittest.mock import AsyncMock, MagicMock
+        from takopi_matrix.client import MatrixClient
+
+        client = MatrixClient(
+            homeserver="https://matrix.org",
+            user_id="@bot:matrix.org",
+            access_token="token",
+        )
+        client._logged_in = True
+
+        mock_nio_client = MagicMock()
+        mock_response = MagicMock()
+        mock_response.status_code = "200"
+        mock_event = MagicMock()
+        mock_event.sender = None
+        mock_event.source = {"sender": "@bot:matrix.org"}
+        mock_response.event = mock_event
+        mock_nio_client.room_get_event = AsyncMock(return_value=mock_response)
+        client._nio_client = mock_nio_client
+
+        result = await client.get_event_sender("!room:matrix.org", "$event123")
+
+        assert result == "@bot:matrix.org"
+
+    @pytest.mark.anyio
+    async def test_get_event_sender_returns_none_on_error(self) -> None:
+        """get_event_sender returns None when event fetch fails."""
+        from unittest.mock import AsyncMock, MagicMock
+        from takopi_matrix.client import MatrixClient
+
+        client = MatrixClient(
+            homeserver="https://matrix.org",
+            user_id="@bot:matrix.org",
+            access_token="token",
+        )
+        client._logged_in = True
+
+        mock_nio_client = MagicMock()
+        mock_nio_client.room_get_event = AsyncMock(
+            side_effect=RuntimeError("Network error")
+        )
+        client._nio_client = mock_nio_client
+
+        result = await client.get_event_sender("!room:matrix.org", "$event123")
+
+        assert result is None
+
 
 # --- Parser edge case tests ---
 
@@ -1026,6 +1102,8 @@ class FakeEventNullSender:
     def __init__(self):
         self.sender = None
         self.event_id = "$evt:example.org"
+        self.url = None
+        self.body = None
         self.source = {"content": {}}
 
 
@@ -1528,10 +1606,14 @@ def test_matrix_client_load_sync_token_success(tmp_path) -> None:
     from takopi_matrix.client.client import MatrixClient
 
     sync_path = tmp_path / "sync.json"
-    sync_path.write_text(json.dumps({
-        "user_id": "@bot:example.org",
-        "next_batch": "s12345_678",
-    }))
+    sync_path.write_text(
+        json.dumps(
+            {
+                "user_id": "@bot:example.org",
+                "next_batch": "s12345_678",
+            }
+        )
+    )
 
     client = MatrixClient(
         homeserver="https://matrix.example.org",
@@ -1549,10 +1631,14 @@ def test_matrix_client_load_sync_token_wrong_user(tmp_path) -> None:
     from takopi_matrix.client.client import MatrixClient
 
     sync_path = tmp_path / "sync.json"
-    sync_path.write_text(json.dumps({
-        "user_id": "@other:example.org",
-        "next_batch": "s12345_678",
-    }))
+    sync_path.write_text(
+        json.dumps(
+            {
+                "user_id": "@other:example.org",
+                "next_batch": "s12345_678",
+            }
+        )
+    )
 
     client = MatrixClient(
         homeserver="https://matrix.example.org",
@@ -1735,7 +1821,7 @@ async def test_matrix_client_drop_pending_edits() -> None:
 @pytest.mark.anyio
 async def test_matrix_client_login_with_token(tmp_path) -> None:
     """login() with access_token sets logged in state."""
-    from unittest.mock import AsyncMock, MagicMock, patch
+    from unittest.mock import AsyncMock, MagicMock
     from takopi_matrix.client.client import MatrixClient
 
     client = MatrixClient(
@@ -1928,7 +2014,6 @@ async def test_matrix_client_sync_success(tmp_path) -> None:
 @pytest.mark.anyio
 async def test_matrix_client_sync_error_response(tmp_path) -> None:
     """sync() handles error response."""
-    import nio
     from unittest.mock import AsyncMock, MagicMock
     from takopi_matrix.client.client import MatrixClient
 
@@ -2099,7 +2184,7 @@ async def test_matrix_client_get_display_name_exception(tmp_path) -> None:
 @pytest.mark.anyio
 async def test_matrix_client_init_e2ee_not_available(tmp_path) -> None:
     """init_e2ee returns False when E2EE not available."""
-    from unittest.mock import AsyncMock, MagicMock, patch
+    from unittest.mock import patch
     from takopi_matrix.client.client import MatrixClient
 
     client = MatrixClient(
@@ -2110,7 +2195,11 @@ async def test_matrix_client_init_e2ee_not_available(tmp_path) -> None:
     )
 
     # Mock e2ee_available to return False
-    with patch.object(type(client), 'e2ee_available', new_callable=lambda: property(lambda self: False)):
+    with patch.object(
+        type(client),
+        "e2ee_available",
+        new_callable=lambda: property(lambda self: False),
+    ):
         result = await client.init_e2ee()
 
     assert result is False
@@ -2120,7 +2209,6 @@ async def test_matrix_client_init_e2ee_not_available(tmp_path) -> None:
 @pytest.mark.anyio
 async def test_matrix_client_init_e2ee_success(tmp_path) -> None:
     """init_e2ee returns True on success."""
-    import nio
     from unittest.mock import AsyncMock, MagicMock, patch
     from takopi_matrix.client.client import MatrixClient
 
@@ -2137,7 +2225,9 @@ async def test_matrix_client_init_e2ee_success(tmp_path) -> None:
     mock_nio.should_upload_keys = False
     client._nio_client = mock_nio
 
-    with patch.object(type(client), 'e2ee_available', new_callable=lambda: property(lambda self: True)):
+    with patch.object(
+        type(client), "e2ee_available", new_callable=lambda: property(lambda self: True)
+    ):
         result = await client.init_e2ee()
 
     assert result is True
@@ -2166,7 +2256,9 @@ async def test_matrix_client_init_e2ee_keys_upload(tmp_path) -> None:
     mock_nio.keys_upload = AsyncMock(return_value=upload_response)
     client._nio_client = mock_nio
 
-    with patch.object(type(client), 'e2ee_available', new_callable=lambda: property(lambda self: True)):
+    with patch.object(
+        type(client), "e2ee_available", new_callable=lambda: property(lambda self: True)
+    ):
         result = await client.init_e2ee()
 
     assert result is True
@@ -2197,7 +2289,9 @@ async def test_matrix_client_init_e2ee_keys_upload_failed(tmp_path) -> None:
     mock_nio.keys_upload = AsyncMock(return_value=error_response)
     client._nio_client = mock_nio
 
-    with patch.object(type(client), 'e2ee_available', new_callable=lambda: property(lambda self: True)):
+    with patch.object(
+        type(client), "e2ee_available", new_callable=lambda: property(lambda self: True)
+    ):
         result = await client.init_e2ee()
 
     assert result is False
@@ -2222,7 +2316,9 @@ async def test_matrix_client_init_e2ee_exception(tmp_path) -> None:
     mock_nio.load_store = MagicMock(side_effect=Exception("Store error"))
     client._nio_client = mock_nio
 
-    with patch.object(type(client), 'e2ee_available', new_callable=lambda: property(lambda self: True)):
+    with patch.object(
+        type(client), "e2ee_available", new_callable=lambda: property(lambda self: True)
+    ):
         result = await client.init_e2ee()
 
     assert result is False
@@ -2242,7 +2338,11 @@ async def test_matrix_client_ensure_room_keys_not_available(tmp_path) -> None:
         sync_store_path=tmp_path / "sync.json",
     )
 
-    with patch.object(type(client), 'e2ee_available', new_callable=lambda: property(lambda self: False)):
+    with patch.object(
+        type(client),
+        "e2ee_available",
+        new_callable=lambda: property(lambda self: False),
+    ):
         await client.ensure_room_keys("!room:example.org")
 
     await client.close()
@@ -2265,13 +2365,17 @@ async def test_matrix_client_ensure_room_keys_claims_keys(tmp_path) -> None:
     mock_nio = MagicMock()
     mock_nio.close = AsyncMock()
     mock_nio.should_claim_keys = True
-    mock_nio.get_users_for_key_claiming = MagicMock(return_value={"@user:example.org": ["DEVICE"]})
+    mock_nio.get_users_for_key_claiming = MagicMock(
+        return_value={"@user:example.org": ["DEVICE"]}
+    )
     claim_response = MagicMock(spec=nio.KeysClaimResponse)
     mock_nio.keys_claim = AsyncMock(return_value=claim_response)
     mock_nio.share_group_session = AsyncMock(return_value=MagicMock())
     client._nio_client = mock_nio
 
-    with patch.object(type(client), 'e2ee_available', new_callable=lambda: property(lambda self: True)):
+    with patch.object(
+        type(client), "e2ee_available", new_callable=lambda: property(lambda self: True)
+    ):
         await client.ensure_room_keys("!room:example.org")
 
     mock_nio.keys_claim.assert_called_once()
@@ -2291,7 +2395,11 @@ async def test_matrix_client_trust_room_devices_not_available(tmp_path) -> None:
         sync_store_path=tmp_path / "sync.json",
     )
 
-    with patch.object(type(client), 'e2ee_available', new_callable=lambda: property(lambda self: False)):
+    with patch.object(
+        type(client),
+        "e2ee_available",
+        new_callable=lambda: property(lambda self: False),
+    ):
         await client.trust_room_devices("!room:example.org")
 
     await client.close()
@@ -2315,7 +2423,9 @@ async def test_matrix_client_trust_room_devices_no_room(tmp_path) -> None:
     mock_nio.rooms = {}  # No rooms
     client._nio_client = mock_nio
 
-    with patch.object(type(client), 'e2ee_available', new_callable=lambda: property(lambda self: True)):
+    with patch.object(
+        type(client), "e2ee_available", new_callable=lambda: property(lambda self: True)
+    ):
         await client.trust_room_devices("!room:example.org")
 
     await client.close()
@@ -2342,7 +2452,9 @@ async def test_matrix_client_trust_room_devices_no_device_store(tmp_path) -> Non
     mock_nio.device_store = None  # No device store
     client._nio_client = mock_nio
 
-    with patch.object(type(client), 'e2ee_available', new_callable=lambda: property(lambda self: True)):
+    with patch.object(
+        type(client), "e2ee_available", new_callable=lambda: property(lambda self: True)
+    ):
         await client.trust_room_devices("!room:example.org")
 
     await client.close()
@@ -2382,7 +2494,9 @@ async def test_matrix_client_trust_room_devices_verifies_devices(tmp_path) -> No
     mock_nio.verify_device = MagicMock()
     client._nio_client = mock_nio
 
-    with patch.object(type(client), 'e2ee_available', new_callable=lambda: property(lambda self: True)):
+    with patch.object(
+        type(client), "e2ee_available", new_callable=lambda: property(lambda self: True)
+    ):
         await client.trust_room_devices("!room:example.org")
 
     mock_nio.verify_device.assert_called_once_with(mock_device)
@@ -2408,7 +2522,9 @@ async def test_matrix_client_trust_room_devices_exception(tmp_path) -> None:
     mock_nio.rooms.get = MagicMock(side_effect=Exception("Rooms error"))
     client._nio_client = mock_nio
 
-    with patch.object(type(client), 'e2ee_available', new_callable=lambda: property(lambda self: True)):
+    with patch.object(
+        type(client), "e2ee_available", new_callable=lambda: property(lambda self: True)
+    ):
         # Should not raise
         await client.trust_room_devices("!room:example.org")
 
@@ -2483,7 +2599,11 @@ async def test_matrix_client_decrypt_event_not_available(tmp_path) -> None:
 
     mock_event = MagicMock()
 
-    with patch.object(type(client), 'e2ee_available', new_callable=lambda: property(lambda self: False)):
+    with patch.object(
+        type(client),
+        "e2ee_available",
+        new_callable=lambda: property(lambda self: False),
+    ):
         result = await client.decrypt_event(mock_event)
 
     assert result is None
