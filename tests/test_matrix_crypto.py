@@ -327,7 +327,9 @@ class TestCryptoManager:
         manager = CryptoManager()
         client = MagicMock(spec=nio.AsyncClient)
         # Make accessing olm raise an exception
-        type(client).olm = property(lambda self: (_ for _ in ()).throw(RuntimeError("boom")))
+        type(client).olm = property(
+            lambda self: (_ for _ in ()).throw(RuntimeError("boom"))
+        )
 
         result = await manager.init_crypto(client)
 

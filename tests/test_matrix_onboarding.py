@@ -413,17 +413,18 @@ def test_check_setup_missing_backend() -> None:
     backend.cli_cmd = "totally_nonexistent_command_12345"
     backend.install_cmd = "pip install nonexistent"
 
-    with patch(
-        "takopi_matrix.onboarding.validation._check_libolm_available", return_value=True
+    with (
+        patch(
+            "takopi_matrix.onboarding.validation._check_libolm_available",
+            return_value=True,
+        ),
+        patch("takopi_matrix.onboarding.validation.load_settings") as mock_load,
     ):
-        with patch(
-            "takopi_matrix.onboarding.validation.load_settings"
-        ) as mock_load:
-            from takopi.config import ConfigError
+        from takopi.config import ConfigError
 
-            mock_load.side_effect = ConfigError("No config")
+        mock_load.side_effect = ConfigError("No config")
 
-            result = check_setup(backend)
+        result = check_setup(backend)
 
     assert len(result.issues) > 0
     # Should have an install issue for the backend
@@ -444,12 +445,13 @@ def test_check_setup_config_error_existing_file(tmp_path: Path) -> None:
     config_path = tmp_path / "takopi.toml"
     config_path.write_text("invalid toml content")
 
-    with patch(
-        "takopi_matrix.onboarding.validation._check_libolm_available", return_value=True
-    ), patch(
-        "takopi_matrix.onboarding.validation.load_settings"
-    ) as mock_load, patch(
-        "takopi_matrix.onboarding.validation.HOME_CONFIG_PATH", config_path
+    with (
+        patch(
+            "takopi_matrix.onboarding.validation._check_libolm_available",
+            return_value=True,
+        ),
+        patch("takopi_matrix.onboarding.validation.load_settings") as mock_load,
+        patch("takopi_matrix.onboarding.validation.HOME_CONFIG_PATH", config_path),
     ):
         mock_load.side_effect = ConfigError("Parse error")
         result = check_setup(backend)
@@ -478,15 +480,16 @@ def test_check_setup_with_transport_override() -> None:
     }
     mock_settings.model_copy = MagicMock(return_value=mock_settings)
 
-    with patch(
-        "takopi_matrix.onboarding.validation._check_libolm_available", return_value=True
+    with (
+        patch(
+            "takopi_matrix.onboarding.validation._check_libolm_available",
+            return_value=True,
+        ),
+        patch("takopi_matrix.onboarding.validation.load_settings") as mock_load,
     ):
-        with patch(
-            "takopi_matrix.onboarding.validation.load_settings"
-        ) as mock_load:
-            mock_load.return_value = (mock_settings, Path("/config.toml"))
+        mock_load.return_value = (mock_settings, Path("/config.toml"))
 
-            result = check_setup(backend, transport_override="matrix")
+        check_setup(backend, transport_override="matrix")
 
     # model_copy should have been called with the override
     mock_settings.model_copy.assert_called_once_with(update={"transport": "matrix"})
@@ -512,21 +515,19 @@ def test_check_setup_libolm_missing() -> None:
         }
     }
 
-    with patch(
-        "takopi_matrix.onboarding.validation._check_libolm_available",
-        return_value=False,
+    with (
+        patch(
+            "takopi_matrix.onboarding.validation._check_libolm_available",
+            return_value=False,
+        ),
+        patch("takopi_matrix.onboarding.validation.load_settings") as mock_load,
     ):
-        with patch(
-            "takopi_matrix.onboarding.validation.load_settings"
-        ) as mock_load:
-            mock_load.return_value = (mock_settings, Path("/config.toml"))
+        mock_load.return_value = (mock_settings, Path("/config.toml"))
 
-            result = check_setup(backend)
+        result = check_setup(backend)
 
     # Should have libolm issue
-    has_libolm_issue = any(
-        "libolm" in str(issue).lower() for issue in result.issues
-    )
+    has_libolm_issue = any("libolm" in str(issue).lower() for issue in result.issues)
     assert has_libolm_issue
 
 
@@ -642,6 +643,7 @@ async def test_test_login_exception() -> None:
 
         assert success is False
         assert token is None
+        assert error is not None
         assert "Network error" in error
         assert mock_client.close.called
 

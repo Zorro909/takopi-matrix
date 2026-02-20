@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 import pytest
 import anyio
 
@@ -9,10 +11,10 @@ from takopi.api import (
     ExecBridgeConfig,
     MessageRef,
     RenderedMessage,
-    RunContext,
     RunRequest,
     RunningTask,
     SendOptions,
+    ThreadScheduler,
 )
 from takopi.router import AutoRouter, RunnerEntry
 from takopi.runners.mock import Return, ScriptRunner
@@ -70,6 +72,7 @@ async def test_capture_transport_send_increments_id() -> None:
     assert ref1.message_id == "1"
     assert ref2.message_id == "2"
     # Last message is the second one
+    assert transport.last_message is not None
     assert transport.last_message.text == "second"
 
 
@@ -85,6 +88,7 @@ async def test_capture_transport_edit() -> None:
     )
 
     assert result == ref
+    assert transport.last_message is not None
     assert transport.last_message.text == "edited"
 
 
@@ -125,11 +129,13 @@ class FakeTransport:
     ) -> MessageRef:
         ref = MessageRef(channel_id=channel_id, message_id=f"$sent{self._next_id}")
         self._next_id += 1
-        self.send_calls.append({
-            "channel_id": channel_id,
-            "message": message,
-            "options": options,
-        })
+        self.send_calls.append(
+            {
+                "channel_id": channel_id,
+                "message": message,
+                "options": options,
+            }
+        )
         return ref
 
     async def edit(
@@ -182,7 +188,7 @@ def _make_executor(
         router=_make_router(runner),
         projects=_empty_projects(),
     )
-    scheduler = FakeScheduler()
+    scheduler = cast(ThreadScheduler, FakeScheduler())
     running_tasks: dict[MessageRef, RunningTask] = {}
 
     # Dummy run_engine_fn for testing
@@ -294,7 +300,7 @@ async def test_executor_run_one_emit_mode() -> None:
         router=_make_router(runner),
         projects=_empty_projects(),
     )
-    scheduler = FakeScheduler()
+    scheduler = cast(ThreadScheduler, FakeScheduler())
     running_tasks: dict[MessageRef, RunningTask] = {}
 
     run_engine_called = False
@@ -335,7 +341,7 @@ async def test_executor_run_one_capture_mode() -> None:
         router=_make_router(runner),
         projects=_empty_projects(),
     )
-    scheduler = FakeScheduler()
+    scheduler = cast(ThreadScheduler, FakeScheduler())
     running_tasks: dict[MessageRef, RunningTask] = {}
 
     captured_message: RenderedMessage | None = None
@@ -383,7 +389,7 @@ async def test_executor_run_many_sequential() -> None:
         router=_make_router(runner),
         projects=_empty_projects(),
     )
-    scheduler = FakeScheduler()
+    scheduler = cast(ThreadScheduler, FakeScheduler())
     running_tasks: dict[MessageRef, RunningTask] = {}
 
     call_order: list[int] = []
@@ -426,7 +432,7 @@ async def test_executor_run_many_parallel() -> None:
         router=_make_router(runner),
         projects=_empty_projects(),
     )
-    scheduler = FakeScheduler()
+    scheduler = cast(ThreadScheduler, FakeScheduler())
     running_tasks: dict[MessageRef, RunningTask] = {}
 
     call_count = 0

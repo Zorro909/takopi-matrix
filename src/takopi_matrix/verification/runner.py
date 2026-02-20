@@ -453,14 +453,15 @@ async def _run_verifier(
                         )
                         return
 
-                    if getattr(client, "olm", None) is None:
+                    olm = getattr(client, "olm", None)
+                    if olm is None:
                         print(
                             "[verifier] cannot start SAS: olm not initialized",
                             flush=True,
                         )
                         return
 
-                    fingerprint = client.olm.account.identity_keys["ed25519"]
+                    fingerprint = olm.account.identity_keys["ed25519"]
                     sas = Sas(
                         creds.user_id,
                         creds.device_id,
@@ -468,7 +469,7 @@ async def _run_verifier(
                         target,
                         transaction_id=str(ready_txn),
                     )
-                    client.olm.key_verifications[str(ready_txn)] = sas
+                    olm.key_verifications[str(ready_txn)] = sas
                     start_msg = sas.start_verification()
 
                     await _send_verif_txn(
@@ -499,8 +500,9 @@ async def _run_verifier(
                 if txn not in seen_accept_txns:
                     seen_accept_txns.add(txn)
                     try:
-                        if getattr(client, "olm", None) is not None:
-                            client.olm.handle_key_verification(event)
+                        olm = getattr(client, "olm", None)
+                        if olm is not None:
+                            olm.handle_key_verification(event)
                     except Exception as exc:
                         if debug_events:
                             print(
@@ -571,12 +573,13 @@ async def _run_verifier(
 
             sas = _sas_for(txn)
             if sas is None:
-                if getattr(client, "olm", None) is None:
+                olm = getattr(client, "olm", None)
+                if olm is None:
                     print(
                         "[verifier] cannot accept SAS: olm not initialized", flush=True
                     )
                     return
-                fingerprint = client.olm.account.identity_keys["ed25519"]
+                fingerprint = olm.account.identity_keys["ed25519"]
                 sas = Sas.from_key_verification_start(
                     creds.user_id,
                     creds.device_id,
@@ -584,7 +587,7 @@ async def _run_verifier(
                     target,
                     event,
                 )
-                client.olm.key_verifications[str(txn)] = sas
+                olm.key_verifications[str(txn)] = sas
 
             other = getattr(sas, "other_olm_device", None) or target
 
@@ -627,8 +630,9 @@ async def _run_verifier(
 
             if not getattr(sas, "other_key_set", False):
                 try:
-                    if getattr(client, "olm", None) is not None:
-                        client.olm.handle_key_verification(event)
+                    olm = getattr(client, "olm", None)
+                    if olm is not None:
+                        olm.handle_key_verification(event)
                 except Exception as exc:
                     if debug_events:
                         print(
@@ -684,8 +688,9 @@ async def _run_verifier(
             if txn not in seen_mac_txns:
                 seen_mac_txns.add(txn)
                 try:
-                    if getattr(client, "olm", None) is not None:
-                        client.olm.handle_key_verification(event)
+                    olm = getattr(client, "olm", None)
+                    if olm is not None:
+                        olm.handle_key_verification(event)
                 except Exception as exc:
                     if debug_events:
                         print(
@@ -771,8 +776,9 @@ async def _run_verifier(
             with suppress(Exception):
                 client.key_verifications.pop(txn, None)
             try:
-                if getattr(client, "olm", None) is not None:
-                    client.olm.key_verifications.pop(txn, None)
+                olm = getattr(client, "olm", None)
+                if olm is not None:
+                    olm.key_verifications.pop(txn, None)
             except Exception:
                 pass
 
@@ -784,8 +790,11 @@ async def _run_verifier(
                 done.set()
             return
 
+    def _on_to_device_callback(event: Any) -> None:
+        asyncio.create_task(on_to_device(event))
+
     client.add_to_device_callback(
-        on_to_device,
+        _on_to_device_callback,
         (
             UnknownToDeviceEvent,
             KeyVerificationEvent,

@@ -9,6 +9,7 @@ from takopi.api import (
     ExecBridgeConfig,
     MessageRef,
     RenderedMessage,
+    ResumeToken,
     RunningTask,
     SendOptions,
 )
@@ -95,11 +96,13 @@ class FakeTransport:
     ) -> MessageRef:
         ref = MessageRef(channel_id=channel_id, message_id=f"$sent{self._next_id}")
         self._next_id += 1
-        self.send_calls.append({
-            "channel_id": channel_id,
-            "message": message,
-            "options": options,
-        })
+        self.send_calls.append(
+            {
+                "channel_id": channel_id,
+                "message": message,
+                "options": options,
+            }
+        )
         return ref
 
     async def edit(
@@ -183,11 +186,11 @@ async def test_send_plain_silent() -> None:
 async def test_wait_for_resume_already_available() -> None:
     """Returns immediately if resume is already set."""
     task = RunningTask()
-    task.resume = "resume-token-123"
+    task.resume = ResumeToken(engine="codex", value="resume-token-123")
 
     result = await _wait_for_resume(task)
 
-    assert result == "resume-token-123"
+    assert result == ResumeToken(engine="codex", value="resume-token-123")
 
 
 @pytest.mark.anyio
@@ -197,14 +200,14 @@ async def test_wait_for_resume_becomes_available() -> None:
 
     async def set_resume_later():
         await anyio.sleep(0.01)
-        task.resume = "delayed-token"
+        task.resume = ResumeToken(engine="codex", value="delayed-token")
         task.resume_ready.set()
 
     async with anyio.create_task_group() as tg:
         tg.start_soon(set_resume_later)
         result = await _wait_for_resume(task)
 
-    assert result == "delayed-token"
+    assert result == ResumeToken(engine="codex", value="delayed-token")
 
 
 @pytest.mark.anyio
@@ -398,7 +401,6 @@ async def test_send_with_resume_with_token() -> None:
 @pytest.mark.anyio
 async def test_enrich_with_reply_text_no_reply() -> None:
     """_enrich_with_reply_text returns message unchanged if no reply."""
-    from dataclasses import replace
     from takopi_matrix.bridge.events import _enrich_with_reply_text
     from takopi_matrix.types import MatrixIncomingMessage
 
@@ -1324,6 +1326,7 @@ async def test_process_invite_events_join_error() -> None:
     from takopi_matrix.bridge.events import _process_invite_events
 
     client = FakeClientForEvents()
+
     # Override join_room to raise
     async def raise_on_join(room_id):
         raise Exception("Network error")

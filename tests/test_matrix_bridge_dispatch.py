@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 import pytest
 
 from takopi.api import (
@@ -13,6 +15,7 @@ from takopi.api import (
     RenderedMessage,
     RunningTask,
     SendOptions,
+    ThreadScheduler,
 )
 from takopi.router import AutoRouter, RunnerEntry
 from takopi.runners.mock import Return, ScriptRunner
@@ -20,7 +23,6 @@ from takopi.transport_runtime import TransportRuntime
 from takopi.config import ProjectsConfig
 from takopi_matrix.bridge.commands.dispatch import dispatch_command
 from takopi_matrix.bridge.commands.parse import split_command_args
-from takopi_matrix.bridge.config import MatrixBridgeConfig
 from takopi_matrix.types import MatrixIncomingMessage
 from matrix_fixtures import MATRIX_ROOM_ID, MATRIX_EVENT_ID, MATRIX_SENDER
 
@@ -85,11 +87,13 @@ class FakeTransport:
     ) -> MessageRef:
         ref = MessageRef(channel_id=channel_id, message_id=f"$sent{self._next_id}")
         self._next_id += 1
-        self.send_calls.append({
-            "channel_id": channel_id,
-            "message": message,
-            "options": options,
-        })
+        self.send_calls.append(
+            {
+                "channel_id": channel_id,
+                "message": message,
+                "options": options,
+            }
+        )
         return ref
 
     async def edit(
@@ -170,7 +174,7 @@ async def test_dispatch_unknown_command_no_error() -> None:
         def note_thread_known(self, resume_token, done_event):
             pass
 
-    scheduler = FakeScheduler()
+    scheduler = cast(ThreadScheduler, FakeScheduler())
 
     async def run_engine_fn(**kwargs):
         pass
@@ -276,7 +280,7 @@ async def test_dispatch_command_success() -> None:
         def note_thread_known(self, resume_token, done_event):
             pass
 
-    scheduler = FakeScheduler()
+    scheduler = cast(ThreadScheduler, FakeScheduler())
 
     async def run_engine_fn(**kwargs):
         pass
@@ -319,7 +323,7 @@ async def test_dispatch_command_exception() -> None:
         def note_thread_known(self, resume_token, done_event):
             pass
 
-    scheduler = FakeScheduler()
+    scheduler = cast(ThreadScheduler, FakeScheduler())
 
     async def run_engine_fn(**kwargs):
         pass
@@ -362,7 +366,7 @@ async def test_dispatch_command_returns_none() -> None:
         def note_thread_known(self, resume_token, done_event):
             pass
 
-    scheduler = FakeScheduler()
+    scheduler = cast(ThreadScheduler, FakeScheduler())
 
     async def run_engine_fn(**kwargs):
         pass
@@ -405,7 +409,7 @@ async def test_dispatch_command_custom_reply_to() -> None:
         def note_thread_known(self, resume_token, done_event):
             pass
 
-    scheduler = FakeScheduler()
+    scheduler = cast(ThreadScheduler, FakeScheduler())
 
     async def run_engine_fn(**kwargs):
         pass
@@ -451,7 +455,7 @@ async def test_dispatch_get_command_config_error() -> None:
         def note_thread_known(self, resume_token, done_event):
             pass
 
-    scheduler = FakeScheduler()
+    scheduler = cast(ThreadScheduler, FakeScheduler())
 
     async def run_engine_fn(**kwargs):
         pass
@@ -497,7 +501,7 @@ async def test_dispatch_with_reply_to() -> None:
         def note_thread_known(self, resume_token, done_event):
             pass
 
-    scheduler = FakeScheduler()
+    scheduler = cast(ThreadScheduler, FakeScheduler())
 
     async def run_engine_fn(**kwargs):
         pass

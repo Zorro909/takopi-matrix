@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pytest
-import anyio
 
 from takopi.api import (
     ExecBridgeConfig,
@@ -14,7 +13,6 @@ from takopi.api import (
 )
 from takopi_matrix.bridge.cancel import (
     _CANCEL_REACTIONS,
-    _is_cancel_command,
     _handle_cancel,
     _handle_cancel_reaction,
 )
@@ -53,11 +51,13 @@ class FakeTransport:
     ) -> MessageRef:
         ref = MessageRef(channel_id=channel_id, message_id=f"$sent{self._next_id}")
         self._next_id += 1
-        self.send_calls.append({
-            "channel_id": channel_id,
-            "message": message,
-            "options": options,
-        })
+        self.send_calls.append(
+            {
+                "channel_id": channel_id,
+                "message": message,
+                "options": options,
+            }
+        )
         return ref
 
     async def edit(
@@ -89,14 +89,14 @@ def _make_config(transport: FakeTransport) -> MatrixBridgeConfig:
         presenter=FakePresenter(),
         final_notify=True,
     )
+
     # We need a minimal config that just has exec_cfg
     # Using object with attribute for simplicity
     class MinimalConfig:
-        pass
+        def __init__(self, exec_cfg: ExecBridgeConfig) -> None:
+            self.exec_cfg = exec_cfg
 
-    cfg = MinimalConfig()
-    cfg.exec_cfg = exec_cfg
-    return cfg  # type: ignore
+    return MinimalConfig(exec_cfg)  # type: ignore[return-value]
 
 
 # --- _handle_cancel tests ---

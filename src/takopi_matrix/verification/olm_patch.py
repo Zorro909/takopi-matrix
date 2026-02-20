@@ -76,7 +76,7 @@ def _patch_olm_for_verification(
                 out[key] = value
             return out
 
-        def _patched_handle_olm(sender: str, sender_key: str, payload: dict[str, Any]):  # type: ignore[no-untyped-def]
+        def _patched_handle_olm(sender: str, sender_key: str, payload: dict[str, Any]):
             event_type = payload.get("type")
             if isinstance(event_type, str) and event_type.startswith(
                 "m.key.verification."
@@ -118,8 +118,8 @@ def _patch_olm_for_verification(
                         return None
             return orig_handle_olm(sender, sender_key, payload)
 
-        olm._handle_olm_event = _patched_handle_olm  # type: ignore[attr-defined]
-        olm._takopi_verif_patch = True  # type: ignore[attr-defined]
+        olm._handle_olm_event = _patched_handle_olm
+        olm._takopi_verif_patch = True
         if debug_events:
             print(
                 "[debug] patched olm for embedded key verification events", flush=True
@@ -130,7 +130,7 @@ def _patch_olm_for_verification(
         olm, "_takopi_decrypted_verif_patch", False
     ):
 
-        def _patched_handle_to_device(event: Any):  # type: ignore[no-untyped-def]
+        def _patched_handle_to_device(event: Any):
             in_type = getattr(event, "type", "") or ""
             decrypted = orig_handle_to_device(event)
             if (
@@ -150,8 +150,8 @@ def _patch_olm_for_verification(
                         )
             return decrypted
 
-        olm.handle_to_device_event = _patched_handle_to_device  # type: ignore[assignment]
-        olm._takopi_decrypted_verif_patch = True  # type: ignore[attr-defined]
+        olm.handle_to_device_event = _patched_handle_to_device
+        olm._takopi_decrypted_verif_patch = True
         if debug_events:
             print(
                 "[debug] patched olm.handle_to_device_event for decrypted verifications",

@@ -11,7 +11,7 @@ def _try_lock(lock_path: Path) -> Any:
     """
 
     try:
-        import fcntl  # type: ignore
+        import fcntl
     except Exception:
         return None
 

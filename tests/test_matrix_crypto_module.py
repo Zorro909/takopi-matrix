@@ -191,9 +191,7 @@ async def test_crypto_manager_trust_device_wrong_client() -> None:
     class FakeClient:
         pass
 
-    result = await manager.trust_device(
-        FakeClient(), "@user:example.org", "device_id"
-    )
+    result = await manager.trust_device(FakeClient(), "@user:example.org", "device_id")
     assert result is False
 
 
@@ -206,7 +204,5 @@ async def test_crypto_manager_trust_device_no_e2ee() -> None:
     class FakeClient:
         pass
 
-    result = await manager.trust_device(
-        FakeClient(), "@user:example.org", "device_id"
-    )
+    result = await manager.trust_device(FakeClient(), "@user:example.org", "device_id")
     assert result is False

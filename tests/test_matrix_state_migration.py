@@ -204,9 +204,7 @@ class TestAtomicWrite:
         assert not prefs_path.with_suffix(".tmp").exists()
 
     @pytest.mark.anyio
-    async def test_atomic_write_with_existing_parent_dir(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_atomic_write_with_existing_parent_dir(self, tmp_path: Path) -> None:
         """Atomic write works when parent directory exists."""
         nested_path = tmp_path / "subdir" / "state.json"
         nested_path.parent.mkdir(parents=True)

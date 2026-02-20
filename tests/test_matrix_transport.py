@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock
+from typing import Any, cast
 
 import pytest
 
@@ -32,13 +32,15 @@ class FakeMatrixClient:
         reply_to_event_id: str | None = None,
         disable_notification: bool = False,
     ) -> dict | None:
-        self.send_message_calls.append({
-            "room_id": room_id,
-            "body": body,
-            "formatted_body": formatted_body,
-            "reply_to_event_id": reply_to_event_id,
-            "disable_notification": disable_notification,
-        })
+        self.send_message_calls.append(
+            {
+                "room_id": room_id,
+                "body": body,
+                "formatted_body": formatted_body,
+                "reply_to_event_id": reply_to_event_id,
+                "disable_notification": disable_notification,
+            }
+        )
         return self._send_result
 
     async def edit_message(
@@ -50,27 +52,33 @@ class FakeMatrixClient:
         formatted_body: str | None = None,
         wait: bool = True,
     ) -> dict | None:
-        self.edit_message_calls.append({
-            "room_id": room_id,
-            "event_id": event_id,
-            "body": body,
-            "formatted_body": formatted_body,
-            "wait": wait,
-        })
+        self.edit_message_calls.append(
+            {
+                "room_id": room_id,
+                "event_id": event_id,
+                "body": body,
+                "formatted_body": formatted_body,
+                "wait": wait,
+            }
+        )
         return self._edit_result
 
     async def redact_message(self, *, room_id: str, event_id: str) -> bool:
-        self.redact_message_calls.append({
-            "room_id": room_id,
-            "event_id": event_id,
-        })
+        self.redact_message_calls.append(
+            {
+                "room_id": room_id,
+                "event_id": event_id,
+            }
+        )
         return self._redact_result
 
     async def drop_pending_edits(self, *, room_id: str, event_id: str) -> None:
-        self.drop_pending_calls.append({
-            "room_id": room_id,
-            "event_id": event_id,
-        })
+        self.drop_pending_calls.append(
+            {
+                "room_id": room_id,
+                "event_id": event_id,
+            }
+        )
 
     async def close(self) -> None:
         pass
@@ -83,7 +91,7 @@ def fake_client() -> FakeMatrixClient:
 
 @pytest.fixture
 def transport(fake_client: FakeMatrixClient) -> MatrixTransport:
-    return MatrixTransport(fake_client)
+    return MatrixTransport(cast(Any, fake_client))
 
 
 # --- send tests ---
@@ -251,9 +259,7 @@ async def test_delete_basic(
 
 
 @pytest.mark.anyio
-async def test_close(
-    transport: MatrixTransport, fake_client: FakeMatrixClient
-) -> None:
+async def test_close(transport: MatrixTransport, fake_client: FakeMatrixClient) -> None:
     """Close delegates to client."""
     await transport.close()
     # Should not raise

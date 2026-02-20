@@ -108,11 +108,13 @@ class FakeTransport:
     async def send(self, *, channel_id, message, options=None):
         from takopi.api import MessageRef
 
-        self.send_calls.append({
-            "channel_id": channel_id,
-            "message": message,
-            "options": options,
-        })
+        self.send_calls.append(
+            {
+                "channel_id": channel_id,
+                "message": message,
+                "options": options,
+            }
+        )
         return MessageRef(channel_id=channel_id, message_id="$sent1")
 
 
@@ -186,7 +188,9 @@ async def test_process_file_attachments_disabled() -> None:
     from takopi_matrix.types import MatrixFile, MatrixIncomingMessage
 
     class FakeConfig:
-        file_download = MatrixFileDownloadConfig(enabled=False, max_size_bytes=50 * 1024 * 1024)
+        file_download = MatrixFileDownloadConfig(
+            enabled=False, max_size_bytes=50 * 1024 * 1024
+        )
 
     attachment = MatrixFile(
         filename="file.txt",
@@ -355,7 +359,10 @@ async def test_transcribe_voice_too_large() -> None:
     """Sends message when voice file too large."""
     from takopi.api import ExecBridgeConfig
 
-    from takopi_matrix.bridge.transcription import _transcribe_voice, _OPENAI_AUDIO_MAX_BYTES
+    from takopi_matrix.bridge.transcription import (
+        _transcribe_voice,
+        _OPENAI_AUDIO_MAX_BYTES,
+    )
     from takopi_matrix.bridge.config import MatrixVoiceTranscriptionConfig
     from takopi_matrix.types import MatrixIncomingMessage, MatrixVoice
 
@@ -450,7 +457,10 @@ async def test_transcribe_voice_downloaded_file_too_large(monkeypatch) -> None:
     """Sends message when downloaded file is too large."""
     from takopi.api import ExecBridgeConfig
 
-    from takopi_matrix.bridge.transcription import _transcribe_voice, _OPENAI_AUDIO_MAX_BYTES
+    from takopi_matrix.bridge.transcription import (
+        _transcribe_voice,
+        _OPENAI_AUDIO_MAX_BYTES,
+    )
     from takopi_matrix.bridge.config import MatrixVoiceTranscriptionConfig
     from takopi_matrix.types import MatrixIncomingMessage, MatrixVoice
 
@@ -922,7 +932,7 @@ async def test_process_file_attachments_with_errors() -> None:
 async def test_process_file_attachments_default_download_dir() -> None:
     """Uses cwd when no download_dir specified."""
     from pathlib import Path
-    from unittest.mock import AsyncMock, patch
+    from unittest.mock import patch
 
     from takopi_matrix.bridge.transcription import _process_file_attachments
     from takopi_matrix.bridge.config import MatrixFileDownloadConfig

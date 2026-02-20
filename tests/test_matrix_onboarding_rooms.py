@@ -82,9 +82,11 @@ class FakeSyncResponse:
 @pytest.mark.anyio
 async def test_fetch_room_invites_success() -> None:
     """Fetch room invites returns list of RoomInvite objects."""
-    invite_info = FakeInviteInfo([
-        FakeInviteState(sender="@inviter:example.org", name="Cool Room"),
-    ])
+    invite_info = FakeInviteInfo(
+        [
+            FakeInviteState(sender="@inviter:example.org", name="Cool Room"),
+        ]
+    )
     rooms = FakeRooms(invite={"!room1:example.org": invite_info})
 
     # Create a mock that passes isinstance check
@@ -173,11 +175,15 @@ async def test_fetch_room_invites_exception() -> None:
 @pytest.mark.anyio
 async def test_fetch_room_invites_multiple() -> None:
     """Fetch room invites handles multiple invites."""
-    rooms = FakeRooms(invite={
-        "!room1:example.org": FakeInviteInfo([FakeInviteState(sender="@a:x")]),
-        "!room2:example.org": FakeInviteInfo([FakeInviteState(sender="@b:x", name="Room 2")]),
-        "!room3:example.org": FakeInviteInfo([]),
-    })
+    rooms = FakeRooms(
+        invite={
+            "!room1:example.org": FakeInviteInfo([FakeInviteState(sender="@a:x")]),
+            "!room2:example.org": FakeInviteInfo(
+                [FakeInviteState(sender="@b:x", name="Room 2")]
+            ),
+            "!room3:example.org": FakeInviteInfo([]),
+        }
+    )
 
     sync_response = MagicMock(spec=nio.SyncResponse)
     sync_response.rooms = rooms

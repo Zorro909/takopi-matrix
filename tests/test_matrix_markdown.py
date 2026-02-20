@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-import pytest
+from typing import Any, cast
+
 from takopi.api import Action, ProgressState
 from takopi.progress import ActionState
 from takopi_matrix.markdown import (
@@ -15,7 +16,6 @@ from takopi_matrix.markdown import (
     _action_title,
     _action_line,
     STATUS,
-    MAX_CMD_LEN,
 )
 
 
@@ -178,7 +178,7 @@ def test_action_title_file_change() -> None:
 
 def test_action_title_unknown_kind() -> None:
     """Unknown kind just returns title."""
-    action = Action(id="a", kind="other", title="something")
+    action = Action(id="a", kind=cast(Any, "other"), title="something")
     result = _action_title(action, None)
     assert result == "something"
 
@@ -192,7 +192,7 @@ def test_action_title_shortened() -> None:
 
 def test_action_title_none() -> None:
     """None title becomes empty string."""
-    action = Action(id="a", kind="tool", title=None)
+    action = Action(id="a", kind="tool", title=cast(Any, None))
     result = _action_title(action, None)
     assert result == "tool: "
 
@@ -309,8 +309,24 @@ def test_formatter_render_progress_parts_with_actions() -> None:
     """Progress with actions."""
     action1 = Action(id="a", kind="command", title="ls")
     action2 = Action(id="a", kind="tool", title="read_file")
-    snapshot1 = ActionState(action=action1, phase="completed", ok=True, display_phase="completed", completed=True, first_seen=0, last_update=0)
-    snapshot2 = ActionState(action=action2, phase="running", ok=None, display_phase="running", completed=False, first_seen=0, last_update=0)
+    snapshot1 = ActionState(
+        action=action1,
+        phase="completed",
+        ok=True,
+        display_phase="completed",
+        completed=True,
+        first_seen=0,
+        last_update=0,
+    )
+    snapshot2 = ActionState(
+        action=action2,
+        phase="running",
+        ok=None,
+        display_phase="running",
+        completed=False,
+        first_seen=0,
+        last_update=0,
+    )
 
     formatter = MarkdownFormatter()
     state = _make_progress_state(action_count=2, actions=(snapshot1, snapshot2))
@@ -387,7 +403,15 @@ def test_formatter_custom_command_width() -> None:
     formatter = MarkdownFormatter(command_width=20)
     long_cmd = "x" * 100
     action = Action(id="a", kind="command", title=long_cmd)
-    snapshot = ActionState(action=action, phase="running", ok=None, display_phase="running", completed=False, first_seen=0, last_update=0)
+    snapshot = ActionState(
+        action=action,
+        phase="running",
+        ok=None,
+        display_phase="running",
+        completed=False,
+        first_seen=0,
+        last_update=0,
+    )
 
     state = _make_progress_state(action_count=1, actions=(snapshot,))
     parts = formatter.render_progress_parts(state, elapsed_s=5.0)

@@ -13,7 +13,7 @@ try:
     )
 except Exception:  # pragma: no cover
     # Older matrix-nio versions re-export these from nio.events.to_device
-    from nio.events.to_device import (  # type: ignore[import-not-found]
+    from nio.events.to_device import (
         KeyVerificationAccept,
         KeyVerificationCancel,
         KeyVerificationEvent,
