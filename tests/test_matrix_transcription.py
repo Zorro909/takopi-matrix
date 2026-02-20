@@ -355,7 +355,7 @@ async def test_transcribe_voice_no_api_key(monkeypatch) -> None:
 
 
 @pytest.mark.anyio
-async def test_transcribe_voice_too_large() -> None:
+async def test_transcribe_voice_too_large(monkeypatch) -> None:
     """Sends message when voice file too large."""
     from takopi.api import ExecBridgeConfig
 
@@ -365,6 +365,8 @@ async def test_transcribe_voice_too_large() -> None:
     )
     from takopi_matrix.bridge.config import MatrixVoiceTranscriptionConfig
     from takopi_matrix.types import MatrixIncomingMessage, MatrixVoice
+
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
 
     transport = FakeTransport()
 
