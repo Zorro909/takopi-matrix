@@ -274,14 +274,22 @@ async def _enrich_with_reply_text(
         reply_to_event_id=msg.reply_to_event_id,
     )
 
-    reply_text = await cfg.client.get_event_text(msg.room_id, msg.reply_to_event_id)
+    reply_result = await cfg.client.get_event_text(msg.room_id, msg.reply_to_event_id)
+    reply_text = reply_result.text
     if reply_text is None:
+        fetch_failed = reply_result.status in {
+            "decrypt_failed",
+            "fetch_failed",
+            "error",
+        }
         logger.warning(
             "matrix.enrich_reply.failed",
             room_id=msg.room_id,
             reply_to_event_id=msg.reply_to_event_id,
+            status=reply_result.status,
+            fetch_failed=fetch_failed,
         )
-        return msg
+        return replace(msg, reply_to_text_fetch_failed=fetch_failed)
 
     logger.info(
         "matrix.enrich_reply.success",
@@ -292,7 +300,7 @@ async def _enrich_with_reply_text(
     )
 
     # Create new message with reply_to_text populated
-    return replace(msg, reply_to_text=reply_text)
+    return replace(msg, reply_to_text=reply_text, reply_to_text_fetch_failed=False)
 
 
 async def _process_single_event(

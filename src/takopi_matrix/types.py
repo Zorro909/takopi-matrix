@@ -38,6 +38,7 @@ class MatrixIncomingMessage:
     thread_root_event_id: str | None = None
     reply_to_event_id: str | None = None
     reply_to_text: str | None = None
+    reply_to_text_fetch_failed: bool = False
     formatted_body: str | None = None
     attachments: list[MatrixFile] | None = None
     voice: MatrixVoice | None = None
