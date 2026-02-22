@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from typing import cast
 from unittest.mock import AsyncMock
 
 import pytest
 
 from takopi.api import ResumeToken
+from takopi_matrix.bridge.config import MatrixBridgeConfig
 from takopi_matrix.bridge.runtime import (
     _SessionScope,
     _lookup_session_resume,
@@ -20,10 +22,13 @@ async def test_lookup_uses_thread_store_for_thread_messages() -> None:
     thread_store = AsyncMock()
     expected = ResumeToken(engine="codex", value="thread-token")
     thread_store.get_session_resume.return_value = expected
-    cfg = SimpleNamespace(
-        session_mode="chat",
-        thread_state=thread_store,
-        chat_sessions=AsyncMock(),
+    cfg = cast(
+        MatrixBridgeConfig,
+        SimpleNamespace(
+            session_mode="chat",
+            thread_state=thread_store,
+            chat_sessions=AsyncMock(),
+        ),
     )
     scope = _SessionScope(
         room_id="!room:example.org",
@@ -43,10 +48,13 @@ async def test_lookup_uses_chat_store_for_non_thread_messages() -> None:
     chat_store = AsyncMock()
     expected = ResumeToken(engine="codex", value="chat-token")
     chat_store.get_session_resume.return_value = expected
-    cfg = SimpleNamespace(
-        session_mode="chat",
-        thread_state=AsyncMock(),
-        chat_sessions=chat_store,
+    cfg = cast(
+        MatrixBridgeConfig,
+        SimpleNamespace(
+            session_mode="chat",
+            thread_state=AsyncMock(),
+            chat_sessions=chat_store,
+        ),
     )
     scope = _SessionScope(
         room_id="!room:example.org",
@@ -63,10 +71,13 @@ async def test_lookup_uses_chat_store_for_non_thread_messages() -> None:
 
 @pytest.mark.anyio
 async def test_lookup_disabled_in_stateless_mode() -> None:
-    cfg = SimpleNamespace(
-        session_mode="stateless",
-        thread_state=AsyncMock(),
-        chat_sessions=AsyncMock(),
+    cfg = cast(
+        MatrixBridgeConfig,
+        SimpleNamespace(
+            session_mode="stateless",
+            thread_state=AsyncMock(),
+            chat_sessions=AsyncMock(),
+        ),
     )
     scope = _SessionScope(
         room_id="!room:example.org",
@@ -81,10 +92,13 @@ async def test_lookup_disabled_in_stateless_mode() -> None:
 @pytest.mark.anyio
 async def test_store_persists_to_thread_store_for_thread_messages() -> None:
     thread_store = AsyncMock()
-    cfg = SimpleNamespace(
-        session_mode="chat",
-        thread_state=thread_store,
-        chat_sessions=AsyncMock(),
+    cfg = cast(
+        MatrixBridgeConfig,
+        SimpleNamespace(
+            session_mode="chat",
+            thread_state=thread_store,
+            chat_sessions=AsyncMock(),
+        ),
     )
     scope = _SessionScope(
         room_id="!room:example.org",
@@ -102,10 +116,13 @@ async def test_store_persists_to_thread_store_for_thread_messages() -> None:
 @pytest.mark.anyio
 async def test_store_persists_to_chat_store_for_non_thread_messages() -> None:
     chat_store = AsyncMock()
-    cfg = SimpleNamespace(
-        session_mode="chat",
-        thread_state=AsyncMock(),
-        chat_sessions=chat_store,
+    cfg = cast(
+        MatrixBridgeConfig,
+        SimpleNamespace(
+            session_mode="chat",
+            thread_state=AsyncMock(),
+            chat_sessions=chat_store,
+        ),
     )
     scope = _SessionScope(
         room_id="!room:example.org",
