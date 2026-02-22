@@ -147,10 +147,13 @@ async def test_resolve_ambient_context_prefers_thread_then_room_then_mapping() -
     room_prefs.get_context.return_value = RunContext(project="room", branch="r1")
     thread_state = AsyncMock()
     thread_state.get_context.return_value = RunContext(project="thread", branch="t1")
-    cfg = SimpleNamespace(
-        room_project_map=room_map,
-        room_prefs=room_prefs,
-        thread_state=thread_state,
+    cfg = cast(
+        MatrixBridgeConfig,
+        SimpleNamespace(
+            room_project_map=room_map,
+            room_prefs=room_prefs,
+            thread_state=thread_state,
+        ),
     )
 
     context = await _resolve_ambient_context(
@@ -168,10 +171,13 @@ async def test_resolve_ambient_context_uses_room_context_outside_thread() -> Non
     )
     room_prefs = AsyncMock()
     room_prefs.get_context.return_value = RunContext(project="room", branch="main")
-    cfg = SimpleNamespace(
-        room_project_map=room_map,
-        room_prefs=room_prefs,
-        thread_state=AsyncMock(),
+    cfg = cast(
+        MatrixBridgeConfig,
+        SimpleNamespace(
+            room_project_map=room_map,
+            room_prefs=room_prefs,
+            thread_state=AsyncMock(),
+        ),
     )
 
     context = await _resolve_ambient_context(

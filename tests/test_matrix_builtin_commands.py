@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
 from takopi.api import RunContext
 
 from matrix_fixtures import make_matrix_message
-from takopi_matrix.bridge.commands.builtin import handle_builtin_command
+from takopi_matrix.bridge.commands.builtin import (
+    _validate_git_url,
+    handle_builtin_command,
+)
 
 
 class _FakeTransport:
@@ -27,7 +31,7 @@ class _FakeTransport:
         return None
 
 
-def _build_cfg() -> tuple[SimpleNamespace, _FakeTransport]:
+def _build_cfg() -> tuple[Any, _FakeTransport]:
     transport = _FakeTransport()
     runtime = SimpleNamespace(
         normalize_project_key=lambda token: token.lower(),
@@ -217,3 +221,80 @@ async def test_repo_list_is_handled() -> None:
     assert handled is True
     assert transport.calls
     assert "projects:" in str(transport.calls[-1]["text"])
+
+
+# --- _validate_git_url tests ---
+
+
+def test_validate_git_url_accepts_https() -> None:
+    assert _validate_git_url("https://github.com/user/repo.git") is None
+
+
+def test_validate_git_url_accepts_ssh() -> None:
+    assert _validate_git_url("ssh://git@github.com/user/repo.git") is None
+
+
+def test_validate_git_url_accepts_git_at() -> None:
+    assert _validate_git_url("git@github.com:user/repo.git") is None
+
+
+def test_validate_git_url_rejects_empty() -> None:
+    assert _validate_git_url("") is not None
+
+
+def test_validate_git_url_rejects_file_protocol() -> None:
+    result = _validate_git_url("file:///etc/passwd")
+    assert result is not None
+    assert "file://" in result
+
+
+def test_validate_git_url_rejects_flag_injection() -> None:
+    result = _validate_git_url("--upload-pack=evil")
+    assert result is not None
+    assert "'-'" in result
+
+
+def test_validate_git_url_rejects_unknown_scheme() -> None:
+    result = _validate_git_url("ftp://example.com/repo.git")
+    assert result is not None
+
+
+# --- /repo add validation tests ---
+
+
+@pytest.mark.anyio
+async def test_repo_add_rejects_file_protocol_url() -> None:
+    cfg, transport = _build_cfg()
+    cfg.runtime.config_path = "/tmp/fake.toml"
+    msg = make_matrix_message(text="/repo add evil file:///etc/passwd")
+
+    handled = await handle_builtin_command(
+        cfg,
+        msg,
+        command_id="repo",
+        args_text="add evil file:///etc/passwd",
+        ambient_context=None,
+    )
+
+    assert handled is True
+    assert transport.calls
+    assert "invalid git URL" in str(transport.calls[-1]["text"])
+
+
+@pytest.mark.anyio
+async def test_repo_add_rejects_existing_alias() -> None:
+    cfg, transport = _build_cfg()
+    cfg.runtime.config_path = "/tmp/fake.toml"
+    msg = make_matrix_message(text="/repo add website https://example.com/repo.git")
+
+    handled = await handle_builtin_command(
+        cfg,
+        msg,
+        command_id="repo",
+        args_text="add website https://example.com/repo.git",
+        ambient_context=None,
+    )
+
+    assert handled is True
+    assert transport.calls
+    assert "already exists" in str(transport.calls[-1]["text"])

@@ -6,7 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 import re
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import anyio
 from takopi.api import (
@@ -88,6 +88,20 @@ FILE_DEFAULT_UPLOADS_DIR = "uploads"
 REPO_ROOT = Path("/workspace/repos")
 WORKTREE_ROOT = Path("/workspace/worktrees")
 ALIAS_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+_ALLOWED_GIT_SCHEMES = ("https://", "http://", "git://", "ssh://", "git@")
+
+
+def _validate_git_url(url: str) -> str | None:
+    """Return an error message if *url* is not a safe git URL, else None."""
+    if not url:
+        return "empty URL"
+    if url.startswith("-"):
+        return "URL cannot start with '-'"
+    if url.lower().startswith("file://"):
+        return "file:// protocol not allowed"
+    if not any(url.startswith(s) for s in _ALLOWED_GIT_SCHEMES):
+        return f"URL must start with one of: {', '.join(_ALLOWED_GIT_SCHEMES)}"
+
 
 ENGINE_SOURCE_LABELS = {
     "directive": "directive",
@@ -1163,13 +1177,13 @@ async def _update_room_binding(path: Path, *, room_id: str, project: str) -> Non
     document = tomlkit.parse(path.read_text()) if path.exists() else tomlkit.document()
     if "transports" not in document:
         document["transports"] = tomlkit.table()
-    transports = document["transports"]
+    transports = cast("dict[str, Any]", document["transports"])
     if "matrix" not in transports:
         transports["matrix"] = tomlkit.table()
-    matrix = transports["matrix"]
+    matrix = cast("dict[str, Any]", transports["matrix"])
     if "room_projects" not in matrix:
         matrix["room_projects"] = tomlkit.table()
-    matrix["room_projects"][room_id] = project
+    cast("dict[str, Any]", matrix["room_projects"])[room_id] = project
     await _save_config_toml(path, document)
 
 
@@ -1185,14 +1199,14 @@ async def _update_project_config(
     document = tomlkit.parse(path.read_text()) if path.exists() else tomlkit.document()
     if "projects" not in document:
         document["projects"] = tomlkit.table()
-    projects = document["projects"]
+    projects = cast("dict[str, Any]", document["projects"])
     if alias not in projects:
         projects[alias] = tomlkit.table()
-    project = projects[alias]
-    project["path"] = str(repo_path)
-    project["worktrees_dir"] = str(worktrees_path)
-    if "worktree_base" not in project:
-        project["worktree_base"] = "main"
+    proj = cast("dict[str, Any]", projects[alias])
+    proj["path"] = str(repo_path)
+    proj["worktrees_dir"] = str(worktrees_path)
+    if "worktree_base" not in proj:
+        proj["worktree_base"] = "main"
     await _save_config_toml(path, document)
 
 
@@ -1305,6 +1319,27 @@ async def _handle_repo_command(
                 room_id=room_id,
                 event_id=event_id,
                 text="invalid alias; use letters, numbers, dot, underscore, dash.",
+            )
+            return
+        url_error = _validate_git_url(git_url)
+        if url_error is not None:
+            await _reply(
+                cfg,
+                room_id=room_id,
+                event_id=event_id,
+                text=f"invalid git URL: {url_error}",
+            )
+            return
+        existing = set(cfg.runtime.project_aliases())
+        if alias.lower() in {a.lower() for a in existing}:
+            await _reply(
+                cfg,
+                room_id=room_id,
+                event_id=event_id,
+                text=(
+                    f"project `{alias}` already exists. "
+                    "use `/repo fetch` to update, or choose a different alias."
+                ),
             )
             return
         ok, message = await _repo_clone_or_fetch(alias, git_url)

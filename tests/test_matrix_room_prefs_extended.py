@@ -136,7 +136,7 @@ def test_normalize_engine_id_empty() -> None:
 def test_new_state_version() -> None:
     """New state has current version."""
     state = _new_state()
-    assert state.version == 2
+    assert state.version == 3
 
 
 def test_new_state_empty_rooms() -> None:
