@@ -1,5 +1,23 @@
 # changelog
 
+## v0.4.0 (2026-02-22)
+
+### changes
+- Add engine overrides, trigger mode, and split commands module
+- Add built-in parity commands, file transfer, and repo onboarding
+- Add chat/thread session auto-resume stores
+- Harden built-ins and ship reload restart behavior
+- Match Telegram voice transcription settings (configurable max_bytes)
+
+### fixes
+- Make reload restart graceful and reliable
+- Make reply-resume robust for encrypted/edited events
+- Align session continuity parity for commands and startup cwd
+- Fix Matrix mentions reply detection and override type safety
+- Resolve post-rebase type errors and document restart mechanism
+- Add git URL validation and alias conflict check
+- Fix broken `_OPENAI_AUDIO_MAX_BYTES` test import (constant removed in favor of configurable `max_bytes`)
+
 ## v0.3.0 (2026-02-18)
 
 ### changes

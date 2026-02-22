@@ -7,7 +7,6 @@ import pytest
 from takopi_matrix.bridge.transcription import (
     _normalize_voice_filename,
     _resolve_openai_api_key,
-    _OPENAI_AUDIO_MAX_BYTES,
 )
 from takopi_matrix.bridge.config import MatrixVoiceTranscriptionConfig
 
@@ -86,14 +85,6 @@ def test_resolve_openai_api_key_not_set(monkeypatch) -> None:
     cfg = MatrixVoiceTranscriptionConfig(enabled=True)
     result = _resolve_openai_api_key(cfg)
     assert result is None
-
-
-# --- Constants tests ---
-
-
-def test_openai_audio_max_bytes() -> None:
-    """Max bytes constant is 25MB."""
-    assert _OPENAI_AUDIO_MAX_BYTES == 25 * 1024 * 1024
 
 
 # --- _send_plain tests ---
@@ -359,10 +350,7 @@ async def test_transcribe_voice_too_large(monkeypatch) -> None:
     """Sends message when voice file too large."""
     from takopi.api import ExecBridgeConfig
 
-    from takopi_matrix.bridge.transcription import (
-        _transcribe_voice,
-        _OPENAI_AUDIO_MAX_BYTES,
-    )
+    from takopi_matrix.bridge.transcription import _transcribe_voice
     from takopi_matrix.bridge.config import MatrixVoiceTranscriptionConfig
     from takopi_matrix.types import MatrixIncomingMessage, MatrixVoice
 
@@ -370,11 +358,13 @@ async def test_transcribe_voice_too_large(monkeypatch) -> None:
 
     transport = FakeTransport()
 
+    settings = MatrixVoiceTranscriptionConfig(enabled=True)
+
     class FakePresenter:
         pass
 
     class FakeConfig:
-        voice_transcription = MatrixVoiceTranscriptionConfig(enabled=True)
+        voice_transcription = settings
         exec_cfg = ExecBridgeConfig(
             transport=transport,  # type: ignore
             presenter=FakePresenter(),  # type: ignore
@@ -385,7 +375,7 @@ async def test_transcribe_voice_too_large(monkeypatch) -> None:
         mxc_url="mxc://example.org/voice123",
         mimetype="audio/ogg",
         duration_ms=5000,
-        size=_OPENAI_AUDIO_MAX_BYTES + 1,  # Too large
+        size=settings.max_bytes + 1,  # Too large
         raw={},
     )
     msg = MatrixIncomingMessage(
@@ -459,10 +449,7 @@ async def test_transcribe_voice_downloaded_file_too_large(monkeypatch) -> None:
     """Sends message when downloaded file is too large."""
     from takopi.api import ExecBridgeConfig
 
-    from takopi_matrix.bridge.transcription import (
-        _transcribe_voice,
-        _OPENAI_AUDIO_MAX_BYTES,
-    )
+    from takopi_matrix.bridge.transcription import _transcribe_voice
     from takopi_matrix.bridge.config import MatrixVoiceTranscriptionConfig
     from takopi_matrix.types import MatrixIncomingMessage, MatrixVoice
 
@@ -470,16 +457,18 @@ async def test_transcribe_voice_downloaded_file_too_large(monkeypatch) -> None:
 
     transport = FakeTransport()
 
+    settings = MatrixVoiceTranscriptionConfig(enabled=True)
+
     class FakePresenter:
         pass
 
     class FakeClient:
         async def download_file(self, mxc_url, file_info=None) -> bytes | None:
             # Return a large byte array
-            return b"x" * (_OPENAI_AUDIO_MAX_BYTES + 1)
+            return b"x" * (settings.max_bytes + 1)
 
     class FakeConfig:
-        voice_transcription = MatrixVoiceTranscriptionConfig(enabled=True)
+        voice_transcription = settings
         exec_cfg = ExecBridgeConfig(
             transport=transport,  # type: ignore
             presenter=FakePresenter(),  # type: ignore
