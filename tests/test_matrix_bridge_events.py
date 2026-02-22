@@ -432,9 +432,11 @@ async def test_enrich_with_reply_text_with_reply() -> None:
     from takopi_matrix.bridge.events import _enrich_with_reply_text
     from takopi_matrix.types import MatrixIncomingMessage
 
+    from takopi_matrix.client.client import EventTextResult
+
     class FakeClient:
         async def get_event_text(self, room_id, event_id):
-            return "This is the original message"
+            return EventTextResult(text="This is the original message", status="ok")
 
     class FakeConfig:
         client = FakeClient()
@@ -460,9 +462,11 @@ async def test_enrich_with_reply_text_fetch_failed() -> None:
     from takopi_matrix.bridge.events import _enrich_with_reply_text
     from takopi_matrix.types import MatrixIncomingMessage
 
+    from takopi_matrix.client.client import EventTextResult
+
     class FakeClient:
         async def get_event_text(self, room_id, event_id):
-            return None  # Fetch failed
+            return EventTextResult(text=None, status="fetch_failed")
 
     class FakeConfig:
         client = FakeClient()
@@ -478,8 +482,8 @@ async def test_enrich_with_reply_text_fetch_failed() -> None:
 
     result = await _enrich_with_reply_text(FakeConfig(), msg)  # type: ignore
 
-    assert result == msg
     assert result.reply_to_text is None
+    assert result.reply_to_text_fetch_failed is True
 
 
 # --- _process_single_event tests ---
