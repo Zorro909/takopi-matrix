@@ -106,7 +106,15 @@ class OverrideSetArgs:
 
 
 def _request_process_restart() -> None:
-    """Request process restart via graceful shutdown path."""
+    """Request process restart via graceful shutdown path.
+
+    Raises ``KeyboardInterrupt`` so the exception propagates up to
+    ``anyio.run()``, which triggers the ``finally`` block in
+    ``run_main_loop`` for cleanup (state save, client close).
+
+    An external process manager (Docker restart policy, systemd, etc.)
+    is expected to restart the process after exit.
+    """
     raise KeyboardInterrupt
 
 

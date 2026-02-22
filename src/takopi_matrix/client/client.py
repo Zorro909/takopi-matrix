@@ -44,7 +44,7 @@ class EventTextResult:
     status: Literal["ok", "missing", "decrypt_failed", "fetch_failed", "error"]
 
 
-def _extract_body_from_event_source(source: object) -> str | None:
+def _extract_body_from_event_source(source: Any) -> str | None:
     if not isinstance(source, dict):
         return None
     content = source.get("content")
@@ -66,7 +66,7 @@ def _extract_body_from_event_source(source: object) -> str | None:
     return body or None
 
 
-def _event_is_encrypted(event: object, source: object) -> bool:
+def _event_is_encrypted(event: Any, source: Any) -> bool:
     if isinstance(source, dict) and source.get("type") == "m.room.encrypted":
         return True
     return type(event).__name__ in {"MegolmEvent", "RoomEncrypted"}

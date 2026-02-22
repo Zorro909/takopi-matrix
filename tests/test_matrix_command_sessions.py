@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from typing import cast
 from unittest.mock import AsyncMock
 
 import anyio
 import pytest
-from takopi.api import ResumeToken, RunRequest
+from takopi.api import ResumeToken, RunRequest, ThreadScheduler
 
 from takopi_matrix.bridge.commands.dispatch import dispatch_command
+from takopi_matrix.bridge.config import MatrixBridgeConfig
 from takopi_matrix.bridge.runtime import _SessionScope, _wrap_on_thread_known
 from takopi_matrix.types import MatrixIncomingMessage
 
@@ -51,16 +53,19 @@ async def test_dispatch_command_persists_chat_session_resume(
     chat_store = AsyncMock()
     thread_store = AsyncMock()
     scheduler = SimpleNamespace(note_thread_known=AsyncMock())
-    cfg = SimpleNamespace(
-        runtime=_RuntimeStub(),
-        exec_cfg=SimpleNamespace(
-            transport=AsyncMock(),
-            presenter=None,
-            final_notify=True,
+    cfg = cast(
+        MatrixBridgeConfig,
+        SimpleNamespace(
+            runtime=_RuntimeStub(),
+            exec_cfg=SimpleNamespace(
+                transport=AsyncMock(),
+                presenter=None,
+                final_notify=True,
+            ),
+            session_mode="chat",
+            chat_sessions=chat_store,
+            thread_state=thread_store,
         ),
-        session_mode="chat",
-        chat_sessions=chat_store,
-        thread_state=thread_store,
     )
     msg = _make_message(thread_root_event_id=None)
     scope = _SessionScope(
@@ -88,7 +93,7 @@ async def test_dispatch_command_persists_chat_session_resume(
         "run_cmd",
         "",
         running_tasks={},
-        scheduler=scheduler,
+        scheduler=cast(ThreadScheduler, scheduler),
         run_engine_fn=_run_engine_fn,
         on_thread_known=_wrap_on_thread_known(
             cfg=cfg,
@@ -114,16 +119,19 @@ async def test_dispatch_command_persists_thread_session_resume(
     chat_store = AsyncMock()
     thread_store = AsyncMock()
     scheduler = SimpleNamespace(note_thread_known=AsyncMock())
-    cfg = SimpleNamespace(
-        runtime=_RuntimeStub(),
-        exec_cfg=SimpleNamespace(
-            transport=AsyncMock(),
-            presenter=None,
-            final_notify=True,
+    cfg = cast(
+        MatrixBridgeConfig,
+        SimpleNamespace(
+            runtime=_RuntimeStub(),
+            exec_cfg=SimpleNamespace(
+                transport=AsyncMock(),
+                presenter=None,
+                final_notify=True,
+            ),
+            session_mode="chat",
+            chat_sessions=chat_store,
+            thread_state=thread_store,
         ),
-        session_mode="chat",
-        chat_sessions=chat_store,
-        thread_state=thread_store,
     )
     msg = _make_message(thread_root_event_id="$thread:example.org")
     scope = _SessionScope(
@@ -151,7 +159,7 @@ async def test_dispatch_command_persists_thread_session_resume(
         "run_cmd",
         "",
         running_tasks={},
-        scheduler=scheduler,
+        scheduler=cast(ThreadScheduler, scheduler),
         run_engine_fn=_run_engine_fn,
         on_thread_known=_wrap_on_thread_known(
             cfg=cfg,

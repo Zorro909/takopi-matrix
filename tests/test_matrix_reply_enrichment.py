@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from typing import cast
 from unittest.mock import AsyncMock
 
 import pytest
 
+from takopi_matrix.bridge.config import MatrixBridgeConfig
 from takopi_matrix.bridge.events import _enrich_with_reply_text
 from takopi_matrix.types import MatrixIncomingMessage
 
@@ -29,7 +31,7 @@ async def test_reply_enrichment_marks_fetch_failed_on_decrypt_error() -> None:
             return_value=SimpleNamespace(text=None, status="decrypt_failed")
         )
     )
-    cfg = SimpleNamespace(client=client)
+    cfg = cast(MatrixBridgeConfig, SimpleNamespace(client=client))
 
     msg = await _enrich_with_reply_text(cfg, _message())
 
@@ -44,7 +46,7 @@ async def test_reply_enrichment_does_not_mark_missing_body_as_fetch_failed() -> 
             return_value=SimpleNamespace(text=None, status="missing")
         )
     )
-    cfg = SimpleNamespace(client=client)
+    cfg = cast(MatrixBridgeConfig, SimpleNamespace(client=client))
 
     msg = await _enrich_with_reply_text(cfg, _message())
 
@@ -59,7 +61,7 @@ async def test_reply_enrichment_sets_text_on_success() -> None:
             return_value=SimpleNamespace(text="codex resume abc", status="ok")
         )
     )
-    cfg = SimpleNamespace(client=client)
+    cfg = cast(MatrixBridgeConfig, SimpleNamespace(client=client))
 
     msg = await _enrich_with_reply_text(cfg, _message())
 

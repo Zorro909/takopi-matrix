@@ -239,10 +239,13 @@ def test_should_warn_reply_resume_fallback_false_when_not_failed() -> None:
 async def test_wrap_on_thread_known_stores_chat_session() -> None:
     base_cb = AsyncMock()
     chat_store = AsyncMock()
-    cfg = SimpleNamespace(
-        session_mode="chat",
-        chat_sessions=chat_store,
-        thread_state=AsyncMock(),
+    cfg = cast(
+        MatrixBridgeConfig,
+        SimpleNamespace(
+            session_mode="chat",
+            chat_sessions=chat_store,
+            thread_state=AsyncMock(),
+        ),
     )
     scope = _SessionScope(
         room_id="!room:example.org",
@@ -268,10 +271,13 @@ async def test_wrap_on_thread_known_stores_chat_session() -> None:
 async def test_wrap_on_thread_known_stores_thread_session() -> None:
     base_cb = AsyncMock()
     thread_store = AsyncMock()
-    cfg = SimpleNamespace(
-        session_mode="chat",
-        chat_sessions=AsyncMock(),
-        thread_state=thread_store,
+    cfg = cast(
+        MatrixBridgeConfig,
+        SimpleNamespace(
+            session_mode="chat",
+            chat_sessions=AsyncMock(),
+            thread_state=thread_store,
+        ),
     )
     scope = _SessionScope(
         room_id="!room:example.org",
@@ -298,10 +304,13 @@ async def test_wrap_on_thread_known_skips_store_in_stateless_mode() -> None:
     base_cb = AsyncMock()
     chat_store = AsyncMock()
     thread_store = AsyncMock()
-    cfg = SimpleNamespace(
-        session_mode="stateless",
-        chat_sessions=chat_store,
-        thread_state=thread_store,
+    cfg = cast(
+        MatrixBridgeConfig,
+        SimpleNamespace(
+            session_mode="stateless",
+            chat_sessions=chat_store,
+            thread_state=thread_store,
+        ),
     )
     scope = _SessionScope(
         room_id="!room:example.org",
