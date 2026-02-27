@@ -80,6 +80,13 @@ def config_issue(path: Path, *, title: str) -> SetupIssue:
     return SetupIssue(title, (f"   {_display_path(path)}",))
 
 
+def _get_matrix_transport_config(settings: Any) -> dict:
+    """Extract matrix transport config from settings."""
+    t = getattr(settings, "transports", None)
+    d = getattr(t, "model_extra", t) if t is not None else {}
+    return d.get("matrix", {}) if isinstance(d, dict) else {}
+
+
 def _check_matrix_config(settings: Any, config_path: Path) -> list[SetupIssue]:
     """Validate Matrix configuration."""
     issues: list[SetupIssue] = []
@@ -87,16 +94,7 @@ def _check_matrix_config(settings: Any, config_path: Path) -> list[SetupIssue]:
     if settings.transport != "matrix":
         return issues
 
-    transports = getattr(settings, "transports", None)
-    if transports is None:
-        transport_config = {}
-    elif hasattr(transports, "model_extra"):
-        # Pydantic v2 model with extra fields
-        transport_config = transports.model_extra.get("matrix", {})
-    elif isinstance(transports, dict):
-        transport_config = transports.get("matrix", {})
-    else:
-        transport_config = {}
+    transport_config = _get_matrix_transport_config(settings)
 
     if not transport_config.get("homeserver"):
         issues.append(config_issue(config_path, title=_CONFIGURE_MATRIX_TITLE))
@@ -134,13 +132,14 @@ def check_setup(
     if shutil.which(cmd) is None:
         backend_issues.append(install_issue(cmd, backend.install_cmd))
 
-    if not _check_libolm_available():
-        issues.append(_libolm_install_issue())
-
     try:
         settings, config_path = load_settings()
         if transport_override:
             settings = settings.model_copy(update={"transport": transport_override})
+
+        if _get_matrix_transport_config(settings).get("e2ee_enabled", True) is not False:
+            if not _check_libolm_available():
+                issues.append(_libolm_install_issue())
 
         matrix_issues = _check_matrix_config(settings, config_path)
         if matrix_issues:
